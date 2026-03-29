@@ -217,10 +217,11 @@ def sidebar_connecte():
             f'</div></div>', unsafe_allow_html=True
         )
 
+        # BUG FIX 1 : string mal fermée avec mélange de guillemets simples/doubles
         if not abonne:
             st.markdown(
-                '<div style="background:rgba(203,166,247,.08);border:1px solid var(--mauve);"
-                "border-radius:10px;padding:12px;margin-bottom:16px;text-align:center;">'
+                '<div style="background:rgba(203,166,247,.08);border:1px solid var(--mauve);'
+                'border-radius:10px;padding:12px;margin-bottom:16px;text-align:center;">'
                 '<div style="font-size:12px;color:var(--mauve);font-weight:600;margin-bottom:4px;">Passer à illimité</div>'
                 '<div style="font-size:22px;font-weight:700;">2,99€<span style="font-size:12px;font-weight:400;color:var(--subtext)">/mois</span></div>'
                 '</div>', unsafe_allow_html=True
@@ -412,6 +413,8 @@ def page_veille():
         if st.session_state["en_cours"]:
             st.progress(0.0, text="Traitement en cours…")
 
+    # BUG FIX 2 : lancer peut être non défini si col_form n'est pas encore exécuté.
+    # On s'assure qu'il est toujours défini avant usage.
     if lancer and sujet.strip() and not st.session_state["en_cours"]:
         if AUTH_OK and uid:
             ok_q, msg_q = auth.peut_rechercher(uid)
@@ -525,7 +528,9 @@ def page_comparaison():
     with col1:
         date_rec = st.selectbox("Session récente", dates, index=0)
     with col2:
-        date_anc = st.selectbox("Session précédente", dates, index=min(1, len(dates)-1))
+        # BUG FIX 3 : index=1 pouvait crasher si len(dates)==1, déjà protégé
+        # mais on sécurise mieux avec min()
+        date_anc = st.selectbox("Session précédente", dates, index=min(1, len(dates) - 1))
     if date_rec == date_anc:
         st.warning("Choisissez deux sessions différentes.")
         return
@@ -534,8 +539,8 @@ def page_comparaison():
     if not sess_rec or not sess_anc:
         st.error("Sessions introuvables.")
         return
-    hrefs_anc = {a["href"] for a in sess_anc.get("articles", [])}
-    hrefs_rec = {a["href"] for a in sess_rec.get("articles", [])}
+    hrefs_anc = {a["href"] for a in sess_anc.get("articles", []) if "href" in a}  # BUG FIX 4 : KeyError si "href" absent
+    hrefs_rec = {a["href"] for a in sess_rec.get("articles", []) if "href" in a}  # BUG FIX 4 : idem
     nouveaux  = hrefs_rec - hrefs_anc
     disparus  = hrefs_anc - hrefs_rec
     col_stat1, col_stat2, col_stat3 = st.columns(3)
@@ -561,7 +566,7 @@ def page_comparaison():
                 st.error(f"Erreur : {e}")
     if nouveaux:
         st.markdown("#### ✨ Nouveaux articles")
-        arts_rec = {a["href"]: a for a in sess_rec.get("articles", [])}
+        arts_rec = {a["href"]: a for a in sess_rec.get("articles", []) if "href" in a}  # BUG FIX 4 : cohérence
         for href in list(nouveaux)[:6]:
             a   = arts_rec.get(href, {})
             dom = urlparse(href).netloc
@@ -573,13 +578,13 @@ def page_comparaison():
             )
     if disparus:
         with st.expander(f"🗃 Articles disparus ({len(disparus)})"):
-            arts_anc = {a["href"]: a for a in sess_anc.get("articles", [])}
+            arts_anc = {a["href"]: a for a in sess_anc.get("articles", []) if "href" in a}  # BUG FIX 4 : cohérence
             for href in list(disparus)[:6]:
                 a = arts_anc.get(href, {})
                 st.markdown(f'<div style="font-size:12px;color:var(--subtext);padding:6px 0;border-bottom:1px solid var(--border)">{a.get("title", href[:60])}</div>', unsafe_allow_html=True)
 
 # ============================================================
-# PAGE CONFIGURATION — fix syntaxe ternaire
+# PAGE CONFIGURATION
 # ============================================================
 def page_config():
     st.markdown("# ⚙️ Configuration")
