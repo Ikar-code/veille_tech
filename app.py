@@ -284,6 +284,31 @@ def sidebar_connecte():
             st.session_state["onglet_actif"]="veille"
             st.rerun()
 
+def sidebar_simple():
+    with st.sidebar:
+        st.markdown("## Navigation")
+
+        pages = {
+            "🔍 Nouvelle veille": "veille",
+            "📚 Historique": "historique",
+            "📊 Comparaison": "comparaison",
+            "⚙️ Configuration": "config",
+        }
+
+        for label, key in pages.items():
+            actif = st.session_state["onglet_actif"] == key
+            if st.button(
+                label,
+                use_container_width=True,
+                type="primary" if actif else "secondary",
+                key=f"nav_simple_{key}"
+            ):
+                st.session_state["onglet_actif"] = key
+                st.rerun()
+
+        st.markdown("---")
+        st.info("Connecte-toi pour plus de fonctionnalités 🚀")
+
 # ============================================================
 # PAGE AUTOMATISATION
 # ============================================================
