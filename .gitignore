@@ -1,0 +1,18 @@
+# Fichiers secrets — ne jamais envoyer sur GitHub
+.env
+*.env
+
+# Données locales
+.app/
+config.json
+historique_veille.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Streamlit
+.streamlit/secrets.toml
