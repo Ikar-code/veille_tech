@@ -1,5 +1,5 @@
 # ============================================================
-# APP.PY — Interface Streamlit pour la veille technologique
+# APP.PY — Veille IA complète avec Supabase storage
 # ============================================================
 
 import streamlit as st
@@ -8,8 +8,17 @@ import os
 from datetime import datetime
 from urllib.parse import urlparse
 
+# ── Chargement .env (local uniquement) ────────────────────
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
+
+# ── Import serveur ─────────────────────────────────────────
 import serveur as srv
 
+# ── Import auth ────────────────────────────────────────────
 AUTH_OK = False
 try:
     import auth
@@ -17,6 +26,17 @@ try:
 except Exception:
     pass
 
+# ── Import storage ─────────────────────────────────────────
+STORAGE_OK = False
+try:
+    import storage
+    STORAGE_OK = True
+except Exception:
+    pass
+
+# ============================================================
+# CONFIG STREAMLIT
+# ============================================================
 st.set_page_config(
     page_title="Veille IA",
     page_icon="🔭",
@@ -24,6 +44,9 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ============================================================
+# CSS
+# ============================================================
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap');
@@ -100,13 +123,6 @@ def _log(msg):
 def _badge_html(label, style="blue"):
     return f'<span class="badge badge-{style}">{label}</span>'
 
-def _compteurs_historique():
-    h = srv.charger_historique()
-    nb_sujets   = sum(1 for k in h if not k.startswith("__"))
-    nb_articles = sum(len(s.get("articles", [])) for sessions in h.values() if isinstance(sessions, list) for s in sessions if isinstance(s, dict))
-    nb_sessions = sum(len(sessions) for sessions in h.values() if isinstance(sessions, list))
-    return nb_sujets, nb_articles, nb_sessions
-
 def _user_id():
     u = st.session_state.get("user")
     return u.id if u else None
@@ -116,6 +132,43 @@ def _est_abonne():
         return False
     uid = _user_id()
     return auth.est_abonne(uid) if uid else False
+
+def _charger_config():
+    """Charge config depuis Supabase si dispo, sinon serveur.py."""
+    if STORAGE_OK:
+        return storage.charger_config()
+    return srv.charger_config()
+
+def _sauvegarder_config(cfg):
+    """Sauvegarde config dans Supabase si dispo, sinon serveur.py."""
+    if STORAGE_OK:
+        storage.sauvegarder_config(cfg)
+    else:
+        srv.sauvegarder_config(cfg)
+
+def _charger_historique():
+    """Charge historique depuis Supabase si dispo, sinon serveur.py."""
+    if STORAGE_OK:
+        return storage.charger_historique()
+    return srv.charger_historique()
+
+def _effacer_historique():
+    if STORAGE_OK:
+        storage.effacer_historique()
+    else:
+        srv.effacer_historique()
+
+def _compteurs_historique():
+    h = _charger_historique()
+    nb_sujets   = sum(1 for k in h if not k.startswith("__"))
+    nb_articles = sum(len(s.get("articles", [])) for sessions in h.values() if isinstance(sessions, list) for s in sessions if isinstance(s, dict))
+    nb_sessions = sum(len(sessions) for sessions in h.values() if isinstance(sessions, list))
+    return nb_sujets, nb_articles, nb_sessions
+
+def _activer_storage(user_id):
+    """Active le storage Supabase pour l'utilisateur connecté."""
+    if STORAGE_OK and user_id:
+        storage.set_user(user_id)
 
 # ============================================================
 # PAGE AUTH
@@ -148,6 +201,8 @@ def page_auth():
                         st.session_state["user"]    = res["user"]
                         st.session_state["session"] = res["session"]
                         st.session_state["profil"]  = auth.get_profil(res["user"].id)
+                        # Active le storage pour cet utilisateur
+                        _activer_storage(res["user"].id)
                         st.rerun()
                     else:
                         st.error(res["message"])
@@ -156,10 +211,7 @@ def page_auth():
             if st.button("Mot de passe oublié ?", use_container_width=True, key="btn_reset"):
                 if email:
                     res = auth.reinitialiser_mot_de_passe(email)
-                    if res["ok"]:
-                        st.success(res["message"])
-                    else:
-                        st.error(res["message"])
+                    st.success(res["message"]) if res["ok"] else st.error(res["message"])
                 else:
                     st.warning("Entrez votre email d'abord.")
 
@@ -183,6 +235,7 @@ def page_auth():
             email2 = st.text_input("Email", key="reg_email", placeholder="votre@email.com")
             pwd2   = st.text_input("Mot de passe", type="password", key="reg_pwd", help="Minimum 6 caractères")
             pwd2b  = st.text_input("Confirmer", type="password", key="reg_pwd2")
+            st.markdown('<div style="font-size:11px;color:var(--subtext);margin:8px 0;">En créant un compte vous acceptez nos CGU.</div>', unsafe_allow_html=True)
 
             if st.button("Créer mon compte", use_container_width=True, type="primary", key="btn_register"):
                 if not email2 or not pwd2:
@@ -196,6 +249,7 @@ def page_auth():
                         res = auth.inscrire(email2, pwd2)
                     if res["ok"]:
                         st.success(res["message"])
+                        st.info("Vérifiez votre email puis connectez-vous.")
                     else:
                         st.error(res["message"])
 
@@ -217,13 +271,13 @@ def sidebar_connecte():
             f'</div></div>', unsafe_allow_html=True
         )
 
-        # BUG FIX 1 : string mal fermée avec mélange de guillemets simples/doubles
         if not abonne:
             st.markdown(
                 '<div style="background:rgba(203,166,247,.08);border:1px solid var(--mauve);'
                 'border-radius:10px;padding:12px;margin-bottom:16px;text-align:center;">'
                 '<div style="font-size:12px;color:var(--mauve);font-weight:600;margin-bottom:4px;">Passer à illimité</div>'
-                '<div style="font-size:22px;font-weight:700;">2,99€<span style="font-size:12px;font-weight:400;color:var(--subtext)">/mois</span></div>'
+                '<div style="font-size:22px;font-weight:700;">2,99€'
+                '<span style="font-size:12px;font-weight:400;color:var(--subtext)">/mois</span></div>'
                 '</div>', unsafe_allow_html=True
             )
             if st.button("✨ S'abonner", use_container_width=True, key="btn_sub_side"):
@@ -249,6 +303,8 @@ def sidebar_connecte():
         st.markdown("---")
         if st.button("🚪 Déconnexion", use_container_width=True):
             auth.deconnecter()
+            if STORAGE_OK:
+                storage.set_user(None)
             st.session_state["user"]    = None
             st.session_state["session"] = None
             st.session_state["profil"]  = {}
@@ -261,7 +317,7 @@ def sidebar_connecte():
 def sidebar_simple():
     with st.sidebar:
         st.markdown("## 🔭 Veille IA")
-        cfg    = srv.charger_config()
+        cfg    = _charger_config()
         wp_ok  = bool(cfg.get("wp_base") and cfg.get("wp_user") and cfg.get("wp_password"))
         ftp_ok = srv.ftp_est_configure()
         col1, col2 = st.columns(2)
@@ -269,7 +325,6 @@ def sidebar_simple():
             st.markdown(f'<div style="text-align:center">{"🟢" if wp_ok else "🔴"} <span style="font-size:12px;color:var(--subtext)">WordPress</span></div>', unsafe_allow_html=True)
         with col2:
             st.markdown(f'<div style="text-align:center">{"🟢" if ftp_ok else "🔴"} <span style="font-size:12px;color:var(--subtext)">FTP</span></div>', unsafe_allow_html=True)
-
         st.markdown("---")
         nb_sujets, nb_articles, _ = _compteurs_historique()
         st.markdown(
@@ -370,7 +425,9 @@ def page_veille():
 
     with col_form:
         st.markdown('<div class="card card-accent">', unsafe_allow_html=True)
-        sujet = st.text_area("Sujets de recherche", placeholder="ex: cybersécurité IA, deepfake, LLM Europe", height=90)
+        sujet = st.text_area("Sujets de recherche",
+                             placeholder="ex: cybersécurité IA, deepfake, LLM Europe",
+                             height=90, help="Séparez plusieurs sujets par des virgules")
         col_a, col_b = st.columns(2)
         with col_a:
             limite = st.number_input("Articles max à résumer", min_value=1, max_value=50, value=10, step=1)
@@ -391,10 +448,14 @@ def page_veille():
         if st.session_state["resultats"]:
             st.markdown("---")
             nb_r = len(st.session_state["resultats"])
-            st.markdown(f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;"><span style="font-family:Space Mono;font-size:13px;">Résultats</span>{_badge_html(f"{nb_r} articles", "green")}</div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">'
+                f'<span style="font-family:Space Mono;font-size:13px;">Résultats</span>'
+                f'{_badge_html(f"{nb_r} articles", "green")}</div>', unsafe_allow_html=True
+            )
             for r in st.session_state["resultats"][:8]:
-                dom   = urlparse(r.get("href","")).netloc
-                score = r.get("score", 0)
+                dom    = urlparse(r.get("href","")).netloc
+                score  = r.get("score", 0)
                 couleur = "green" if score >= 80 else "yellow" if score >= 50 else "red"
                 st.markdown(
                     f'<div class="card" style="padding:12px 16px;margin-bottom:6px;">'
@@ -408,13 +469,14 @@ def page_veille():
 
     with col_log:
         st.markdown('<div style="font-family:Space Mono;font-size:12px;color:var(--subtext);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">— Journal d\'exécution</div>', unsafe_allow_html=True)
-        log_html = "<br>".join(st.session_state["logs"][-40:] if st.session_state["logs"] else ["<span style='color:var(--subtext)'>En attente de lancement…</span>"])
+        log_html = "<br>".join(
+            st.session_state["logs"][-40:] if st.session_state["logs"]
+            else ["<span style='color:var(--subtext)'>En attente de lancement…</span>"]
+        )
         st.markdown(f'<div class="log-box">{log_html}</div>', unsafe_allow_html=True)
         if st.session_state["en_cours"]:
             st.progress(0.0, text="Traitement en cours…")
 
-    # BUG FIX 2 : lancer peut être non défini si col_form n'est pas encore exécuté.
-    # On s'assure qu'il est toujours défini avant usage.
     if lancer and sujet.strip() and not st.session_state["en_cours"]:
         if AUTH_OK and uid:
             ok_q, msg_q = auth.peut_rechercher(uid)
@@ -429,22 +491,37 @@ def page_veille():
         _log(f"Démarrage — sujet : {sujet.strip()}")
 
         try:
+            _log("Recherche DuckDuckGo + flux RSS…")
             resultats = srv.rechercher(sujet.strip(), callback_statut=_log)
             st.session_state["resultats"] = resultats
-            _log(f"{len(resultats)} résultats — lancement du workflow IA")
+            _log(f"✅ {len(resultats)} résultats — lancement du workflow IA")
 
             if AUTH_OK and uid and not abonne:
                 auth.incrementer_quota(uid)
 
+            # Injecte les fonctions storage dans serveur si dispo
+            if STORAGE_OK:
+                srv.charger_historique    = storage.charger_historique
+                srv.sauvegarder_historique = storage.sauvegarder_historique
+                srv.charger_config        = storage.charger_config
+                srv.sauvegarder_config    = storage.sauvegarder_config
+
             if mode == "Mise à jour page":
-                resultats_pub = srv.workflow_publier(sujet.strip(), resultats, callback_statut=_log, limite=int(limite))
+                resultats_pub = srv.workflow_publier(
+                    sujet.strip(), resultats,
+                    callback_statut=_log, limite=int(limite)
+                )
                 for canal, (ok, msg) in resultats_pub.items():
-                    _log(f"{'OK' if ok else 'ERREUR'} {canal.upper()} : {msg}")
+                    _log(f"{'✅' if ok else '❌'} {canal.upper()} : {msg}")
             else:
-                ok, msg = srv.workflow_creer_post(sujet.strip(), resultats[:int(limite)], callback_statut=_log)
-                _log(f"{'OK' if ok else 'ERREUR'} Post : {msg}")
+                ok, msg = srv.workflow_creer_post(
+                    sujet.strip(), resultats[:int(limite)],
+                    callback_statut=_log
+                )
+                _log(f"{'✅' if ok else '❌'} Post : {msg}")
+
         except Exception as e:
-            _log(f"Erreur : {e}")
+            _log(f"❌ Erreur : {e}")
 
         st.session_state["en_cours"] = False
         st.rerun()
@@ -458,7 +535,7 @@ def page_veille():
 def page_historique():
     st.markdown("# 📚 Historique des veilles")
     st.markdown("---")
-    h = srv.charger_historique()
+    h = _charger_historique()
     sujets = [k for k in h if not k.startswith("__") and isinstance(h[k], list)]
     if not sujets:
         st.info("Aucun historique. Lancez une première veille.")
@@ -467,9 +544,13 @@ def page_historique():
     with col_gauche:
         sujet_sel = st.selectbox("Sujet", sujets)
         sessions  = h.get(sujet_sel, [])
-        st.markdown(f'<div class="metric-box" style="margin:12px 0;"><span class="metric-val">{len(sessions)}</span><span class="metric-lbl">Sessions</span></div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="metric-box" style="margin:12px 0;">'
+            f'<span class="metric-val">{len(sessions)}</span>'
+            f'<span class="metric-lbl">Sessions</span></div>', unsafe_allow_html=True
+        )
         if st.button("🗑 Effacer tout l'historique", type="secondary", use_container_width=True):
-            srv.effacer_historique()
+            _effacer_historique()
             st.success("Historique effacé.")
             st.rerun()
     with col_droite:
@@ -494,13 +575,18 @@ def page_historique():
                     doublon = a.get("doublon_de","")
                     pts_html = ""
                     if points and points != ["Contenu non accessible pour ce site."]:
-                        pts_html = "".join(f'<li style="font-size:12px;color:var(--subtext);margin:3px 0;line-height:1.6">{p}</li>' for p in points[:3])
+                        pts_html = "".join(
+                            f'<li style="font-size:12px;color:var(--subtext);margin:3px 0;line-height:1.6">{p}</li>'
+                            for p in points[:3]
+                        )
                         pts_html = f"<ul style='padding-left:18px;margin:6px 0 0 0'>{pts_html}</ul>"
                     badge_d = '<span class="badge badge-yellow" style="margin-left:8px">~doublon</span>' if doublon else ""
                     st.markdown(
                         f'<div class="card" style="padding:12px 16px;margin-bottom:6px;">'
                         f'<div style="display:flex;justify-content:space-between;align-items:flex-start;">'
-                        f'<div style="font-size:13px;font-weight:500;flex:1"><a href="{a.get("href","")}" target="_blank" style="color:var(--blue);text-decoration:none">{a.get("title","")[:80]}</a>{badge_d}</div>'
+                        f'<div style="font-size:13px;font-weight:500;flex:1">'
+                        f'<a href="{a.get("href","")}" target="_blank" style="color:var(--blue);text-decoration:none">'
+                        f'{a.get("title","")[:80]}</a>{badge_d}</div>'
                         f'<span class="badge badge-blue" style="margin-left:12px;white-space:nowrap">{score}</span></div>'
                         f'<div style="font-size:11px;color:var(--subtext);margin-top:4px">{dom}</div>'
                         f'{pts_html}</div>', unsafe_allow_html=True
@@ -513,7 +599,7 @@ def page_comparaison():
     st.markdown("# 📊 Comparaison de sessions")
     st.markdown("### Identifiez les évolutions entre deux veilles")
     st.markdown("---")
-    h = srv.charger_historique()
+    h = _charger_historique()
     sujets = [k for k in h if not k.startswith("__") and isinstance(h[k], list)]
     if not sujets:
         st.info("Aucun historique disponible.")
@@ -528,9 +614,7 @@ def page_comparaison():
     with col1:
         date_rec = st.selectbox("Session récente", dates, index=0)
     with col2:
-        # BUG FIX 3 : index=1 pouvait crasher si len(dates)==1, déjà protégé
-        # mais on sécurise mieux avec min()
-        date_anc = st.selectbox("Session précédente", dates, index=min(1, len(dates) - 1))
+        date_anc = st.selectbox("Session précédente", dates, index=min(1, len(dates)-1))
     if date_rec == date_anc:
         st.warning("Choisissez deux sessions différentes.")
         return
@@ -539,18 +623,21 @@ def page_comparaison():
     if not sess_rec or not sess_anc:
         st.error("Sessions introuvables.")
         return
-    hrefs_anc = {a["href"] for a in sess_anc.get("articles", []) if "href" in a}  # BUG FIX 4 : KeyError si "href" absent
-    hrefs_rec = {a["href"] for a in sess_rec.get("articles", []) if "href" in a}  # BUG FIX 4 : idem
+    hrefs_anc = {a["href"] for a in sess_anc.get("articles", []) if "href" in a}
+    hrefs_rec = {a["href"] for a in sess_rec.get("articles", []) if "href" in a}
     nouveaux  = hrefs_rec - hrefs_anc
     disparus  = hrefs_anc - hrefs_rec
-    col_stat1, col_stat2, col_stat3 = st.columns(3)
+    col1, col2, col3 = st.columns(3)
     for col, val, lbl, clr in [
-        (col_stat1, len(sess_rec.get("articles",[])), "Articles récents", "blue"),
-        (col_stat2, len(nouveaux), "Nouveaux", "green"),
-        (col_stat3, len(disparus), "Disparus", "red"),
+        (col1, len(sess_rec.get("articles",[])), "Articles récents", "blue"),
+        (col2, len(nouveaux), "Nouveaux", "green"),
+        (col3, len(disparus), "Disparus", "red"),
     ]:
         with col:
-            st.markdown(f'<div class="metric-box"><span class="metric-val" style="color:var(--{clr})">{val}</span><span class="metric-lbl">{lbl}</span></div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="metric-box"><span class="metric-val" style="color:var(--{clr})">{val}</span>'
+                f'<span class="metric-lbl">{lbl}</span></div>', unsafe_allow_html=True
+            )
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
     if st.button("🧠 Générer l'analyse comparative", type="primary"):
         with st.spinner("Analyse IA en cours…"):
@@ -566,30 +653,34 @@ def page_comparaison():
                 st.error(f"Erreur : {e}")
     if nouveaux:
         st.markdown("#### ✨ Nouveaux articles")
-        arts_rec = {a["href"]: a for a in sess_rec.get("articles", []) if "href" in a}  # BUG FIX 4 : cohérence
+        arts_rec = {a["href"]: a for a in sess_rec.get("articles", []) if "href" in a}
         for href in list(nouveaux)[:6]:
             a   = arts_rec.get(href, {})
             dom = urlparse(href).netloc
             st.markdown(
                 f'<div class="card" style="padding:10px 14px;margin-bottom:6px;">'
-                f'<a href="{href}" target="_blank" style="color:var(--green);font-size:13px;font-weight:500">{a.get("title", href[:60])}</a>'
+                f'<a href="{href}" target="_blank" style="color:var(--green);font-size:13px;font-weight:500">'
+                f'{a.get("title", href[:60])}</a>'
                 f'<div style="font-size:11px;color:var(--subtext);margin-top:2px">{dom}</div></div>',
                 unsafe_allow_html=True
             )
     if disparus:
         with st.expander(f"🗃 Articles disparus ({len(disparus)})"):
-            arts_anc = {a["href"]: a for a in sess_anc.get("articles", []) if "href" in a}  # BUG FIX 4 : cohérence
+            arts_anc = {a["href"]: a for a in sess_anc.get("articles", []) if "href" in a}
             for href in list(disparus)[:6]:
                 a = arts_anc.get(href, {})
-                st.markdown(f'<div style="font-size:12px;color:var(--subtext);padding:6px 0;border-bottom:1px solid var(--border)">{a.get("title", href[:60])}</div>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<div style="font-size:12px;color:var(--subtext);padding:6px 0;border-bottom:1px solid var(--border)">'
+                    f'{a.get("title", href[:60])}</div>', unsafe_allow_html=True
+                )
 
 # ============================================================
-# PAGE CONFIGURATION
+# PAGE CONFIG
 # ============================================================
 def page_config():
     st.markdown("# ⚙️ Configuration")
     st.markdown("---")
-    cfg = srv.charger_config()
+    cfg = _charger_config()
     tab_wp, tab_ftp = st.tabs(["🌐 WordPress", "📡 FTP"])
 
     with tab_wp:
@@ -599,22 +690,17 @@ def page_config():
         with col1:
             wp_user = st.text_input("Identifiant", value=cfg.get("wp_user", ""))
         with col2:
-            wp_pwd = st.text_input("Mot de passe d'application", value=cfg.get("wp_password", ""), type="password")
-
+            wp_pwd  = st.text_input("Mot de passe d'application", value=cfg.get("wp_password", ""), type="password")
         col_save, col_test = st.columns(2)
         with col_save:
             if st.button("💾 Sauvegarder WP", use_container_width=True):
                 cfg.update({"wp_base": wp_base, "wp_user": wp_user, "wp_password": wp_pwd})
-                srv.sauvegarder_config(cfg)
+                _sauvegarder_config(cfg)
                 st.success("Configuration WordPress sauvegardée !")
         with col_test:
-            if st.button("🔌 Tester la connexion WP", use_container_width=True):
+            if st.button("🔌 Tester la connexion", use_container_width=True):
                 ok, msg = srv.tester_connexion_wp(wp_base, wp_user, wp_pwd)
-                if ok:
-                    st.success(msg)
-                else:
-                    st.error(msg)
-
+                st.success(msg) if ok else st.error(msg)
         st.markdown(
             '<div class="card" style="margin-top:12px;">'
             '<div style="font-size:12px;color:var(--subtext);line-height:1.8;">'
@@ -632,51 +718,59 @@ def page_config():
         with col1:
             ftp_user = st.text_input("Utilisateur FTP", value=cfg.get("ftp_user", ""))
         with col2:
-            ftp_pwd = st.text_input("Mot de passe FTP", value=cfg.get("ftp_password", ""), type="password")
+            ftp_pwd  = st.text_input("Mot de passe FTP", value=cfg.get("ftp_password", ""), type="password")
         ftp_path = st.text_input("Chemin distant", value=cfg.get("ftp_path", "/htdocs/veille-ia.html"))
-
         col_save, col_test = st.columns(2)
         with col_save:
             if st.button("💾 Sauvegarder FTP", use_container_width=True):
                 cfg.update({"ftp_host": ftp_host, "ftp_user": ftp_user,
                             "ftp_password": ftp_pwd, "ftp_path": ftp_path})
-                srv.sauvegarder_config(cfg)
+                _sauvegarder_config(cfg)
                 st.success("Configuration FTP sauvegardée !")
         with col_test:
             if st.button("🔌 Tester FTP", use_container_width=True):
                 ok, msg = srv.tester_connexion_ftp(ftp_host, ftp_user, ftp_pwd)
-                if ok:
-                    st.success(msg)
-                else:
-                    st.error(msg)
+                st.success(msg) if ok else st.error(msg)
 
     st.markdown("---")
     st.markdown("#### Informations système")
     col1, col2, col3 = st.columns(3)
-    racine  = os.environ.get("VEILLE_RACINE", os.path.dirname(os.path.abspath(__file__)))
-    app_dir = os.path.join(racine, ".app")
     with col1:
-        st.markdown(f'<div class="card"><div style="font-size:11px;color:var(--subtext)">Dossier données</div><div style="font-size:12px;font-family:Space Mono;margin-top:4px;word-break:break-all">{app_dir}</div></div>', unsafe_allow_html=True)
+        mode_storage = "Supabase ☁️" if (STORAGE_OK and storage.SUPABASE_OK) else "Fichier local 💾"
+        st.markdown(
+            f'<div class="card"><div style="font-size:11px;color:var(--subtext)">Stockage</div>'
+            f'<div style="font-size:13px;font-weight:500;margin-top:4px">{mode_storage}</div></div>',
+            unsafe_allow_html=True
+        )
     with col2:
         try:
-            import ddgs
-            ddgs_ok = "✅ ddgs"
+            import ddgs; ddgs_ok = "✅ ddgs"
         except ImportError:
-            ddgs_ok = "❌ ddgs manquant"
+            ddgs_ok = "❌ ddgs"
         try:
-            import feedparser
-            fp_ok = "✅ feedparser"
+            import feedparser; fp_ok = "✅ feedparser"
         except ImportError:
-            fp_ok = "❌ feedparser manquant"
-        st.markdown(f'<div class="card"><div style="font-size:12px;margin-bottom:4px">{ddgs_ok}</div><div style="font-size:12px">{fp_ok}</div></div>', unsafe_allow_html=True)
+            fp_ok = "❌ feedparser"
+        st.markdown(
+            f'<div class="card"><div style="font-size:12px;margin-bottom:4px">{ddgs_ok}</div>'
+            f'<div style="font-size:12px">{fp_ok}</div></div>', unsafe_allow_html=True
+        )
     with col3:
         nb_s, nb_a, _ = _compteurs_historique()
-        st.markdown(f'<div class="card"><div style="font-size:12px;color:var(--subtext)">Historique</div><div style="font-size:12px;margin-top:4px">{nb_s} sujets · {nb_a} articles</div></div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="card"><div style="font-size:12px;color:var(--subtext)">Historique</div>'
+            f'<div style="font-size:12px;margin-top:4px">{nb_s} sujets · {nb_a} articles</div></div>',
+            unsafe_allow_html=True
+        )
 
 # ============================================================
 # ROUTING PRINCIPAL
 # ============================================================
 user = st.session_state.get("user")
+
+# Reactive le storage si déjà connecté (après rerun)
+if user and STORAGE_OK:
+    _activer_storage(user.id)
 
 if AUTH_OK and not user:
     page_auth()
@@ -687,15 +781,9 @@ else:
         sidebar_simple()
 
     page = st.session_state["onglet_actif"]
-    if page == "veille":
-        page_veille()
-    elif page == "historique":
-        page_historique()
-    elif page == "comparaison":
-        page_comparaison()
-    elif page == "config":
-        page_config()
-    elif page == "abonnement":
-        page_abonnement()
-    else:
-        page_veille()
+    if   page == "veille":      page_veille()
+    elif page == "historique":  page_historique()
+    elif page == "comparaison": page_comparaison()
+    elif page == "config":      page_config()
+    elif page == "abonnement":  page_abonnement()
+    else:                       page_veille()
