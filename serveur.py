@@ -24,10 +24,25 @@ except ImportError:
     FEEDPARSER_OK = False
 
 # ============================================================
-# FICHIERS DE DONNÉES — stockés dans .app/ (dossier caché)
+# FICHIERS DE DONNÉES
+# Sur Render : filesystem éphémère → on utilise /tmp
+# En local   : dossier .app/ à côté du script
+# Surcharge possible via VEILLE_RACINE dans les variables d'env Render
 # ============================================================
 import os as _os
-_RACINE = _os.environ.get("VEILLE_RACINE", _os.path.dirname(_os.path.abspath(__file__)))
+
+def _resoudre_racine():
+    # 1. Variable d'env explicite (à définir dans Render → Environment)
+    env = _os.environ.get("VEILLE_RACINE", "").strip()
+    if env and _os.access(env, _os.W_OK):
+        return env
+    # 2. /tmp — toujours accessible en écriture sur Render
+    if _os.access("/tmp", _os.W_OK):
+        return "/tmp"
+    # 3. Dossier du script (local)
+    return _os.path.dirname(_os.path.abspath(__file__))
+
+_RACINE = _resoudre_racine()
 _APP    = _os.path.join(_RACINE, ".app")
 _os.makedirs(_APP, exist_ok=True)
 
@@ -40,13 +55,9 @@ HISTORIQUE_FILE      = _os.path.join(_APP, "historique_veille.json")
 # ==========================
 OLLAMA_URL   = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "mistral"
-GROQ_API_KEY = "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"
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "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")
 
-# ==========================
-# CONFIG FTP EN LIGNE
-# (chargée depuis config.json — voir _ftp_config())
-# ==========================
-FTP_REMOTE_PATH = "/htdocs/veille-ia.html"  # Valeur par défaut si non renseignée
+FTP_REMOTE_PATH = "/htdocs/veille-ia.html"
 
 HEADERS_WEB = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -137,21 +148,20 @@ def tester_connexion_wp(url, user, pwd):
             nom = r.json().get("name", user)
             return True, f"Connexion reussie ! Connecte en tant que : {nom}"
         elif r.status_code == 401:
-            return False, "Identifiants incorrects. Verifiez le mot de passe d'application."
+            return False, "Identifiants incorrects."
         elif r.status_code == 403:
-            return False, "Acces refuse. L'API REST est peut-etre desactivee sur ce serveur."
+            return False, "Acces refuse. L'API REST est peut-etre desactivee."
         elif r.status_code == 404:
-            return False, "URL introuvable. Verifiez l'adresse de votre site."
+            return False, "URL introuvable."
         else:
-            return False, f"Erreur {r.status_code}. Verifiez l'URL WordPress."
+            return False, f"Erreur {r.status_code}."
     except requests.exceptions.ConnectionError:
         est_local = any(x in url.lower() for x in ["localhost", ".local", "127.0.0.1"])
         if est_local:
-            return False, "Site local inaccessible. Verifiez que WordPress (Local/XAMPP) est demarre."
-        else:
-            return False, "Site distant inaccessible. Verifiez l'URL ou votre connexion internet."
+            return False, "Site local inaccessible."
+        return False, "Site distant inaccessible."
     except requests.exceptions.Timeout:
-        return False, "Delai depasse. Le site met trop de temps a repondre."
+        return False, "Delai depasse."
     except Exception as e:
         return False, f"Erreur : {e}"
 
@@ -219,11 +229,9 @@ def obtenir_ou_creer_page():
                 return pid
     except Exception:
         pass
-
     base = _wp_base()
     if not base:
         return None
-
     try:
         r = requests.get(f"{base}/pages?search=Veille+IA&per_page=10",
                          headers=_get_wp_headers(), timeout=10)
@@ -233,7 +241,6 @@ def obtenir_ou_creer_page():
                 with open(VEILLE_PAGE_ID_FILE, "w") as f:
                     json.dump({"id": pid}, f)
                 return pid
-
         r = requests.post(f"{base}/pages", headers=_get_wp_headers(), json={
             "title": "Veille Technologique",
             "content": "<p>Les résultats apparaîtront ici.</p>",
@@ -264,7 +271,6 @@ def est_bloque(r, sujet=""):
     titre = normaliser(r.get("title", ""))
     body  = normaliser(r.get("body", ""))
     dom   = urlparse(url).netloc.lower()
-
     if any(d in dom for d in DOMAINES_GOUVERNEMENTAUX_BLOQUES):
         return True
     url_n = normaliser(url)
@@ -272,13 +278,11 @@ def est_bloque(r, sujet=""):
         return True
     if any(t in titre for t in TITRES_HORS_SUJET):
         return True
-
     if sujet:
         mots_sujet = [m for m in re.split(r"[,\s]+", normaliser(sujet)) if len(m) > 2]
         texte = titre + " " + body
         if mots_sujet and not any(m in texte for m in mots_sujet):
             return True
-
     return False
 
 def deduplique_semantique(liste, seuil=0.75):
@@ -298,7 +302,6 @@ def detecter_doublons_contenu(nouveaux_articles, sessions_existantes, seuil=0.70
             if pts and pts != ["Contenu non accessible pour ce site."]:
                 texte = " ".join(pts).lower()
                 resumes_existants.append((texte, a.get("title", ""), a.get("href", "")))
-
     for article in nouveaux_articles:
         pts = article.get("resume_ollama", [])
         if not pts or pts == ["Contenu non accessible pour ce site."]:
@@ -309,7 +312,6 @@ def detecter_doublons_contenu(nouveaux_articles, sessions_existantes, seuil=0.70
             if ratio > seuil:
                 article["doublon_de"] = titre_ancien[:60]
                 break
-
     return nouveaux_articles
 
 # ============================================================
@@ -401,7 +403,7 @@ def scorer_resultat(r, sujet):
     sa = sum(1 for m in mots_autres if m in td)
     est_fr = sf >= 2; est_en = se >= 2
     est_autre = sa >= 3 and not est_fr and not est_en
-    if est_autre:             score -= 200
+    if est_autre:                   score -= 200
     elif not est_fr and not est_en: score -= 80
 
     for mot in re.split(r"[,\s]+", normaliser(sujet)):
@@ -441,7 +443,6 @@ def resumer_article_ollama(titre, url, body_ddg):
     source = texte if len(texte) > 300 else body_ddg
     if not source or len(source.strip()) < 60:
         return ["Contenu non accessible pour ce site."]
-
     try:
         resp = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
@@ -454,12 +455,7 @@ def resumer_article_ollama(titre, url, body_ddg):
                     {"role": "system",
                      "content": "Tu es un assistant de veille technologique. Tu résumes des articles en 3 à 5 points clés, en français, de manière concrète et factuelle."},
                     {"role": "user",
-                     "content": f"""Article : "{titre}"
-
-Contenu :
-{source[:2500]}
-
-Rédige 3 à 5 points clés. Chaque point commence par "• ". Phrases complètes et informatives. Uniquement les points, rien d'autre."""}
+                     "content": f"Article : \"{titre}\"\n\nContenu :\n{source[:2500]}\n\nRédige 3 à 5 points clés. Chaque point commence par \"• \". Phrases complètes. Uniquement les points."}
                 ]
             }, timeout=30
         )
@@ -489,7 +485,6 @@ def _resumer_fallback(source):
 def generer_resume_global(sujet, articles):
     if not articles:
         return "Aucun article analysé."
-
     contexte = ""
     for i, a in enumerate(articles[:12]):
         titre  = a.get("title", "")
@@ -497,7 +492,6 @@ def generer_resume_global(sujet, articles):
         dom    = urlparse(url).netloc
         points = a.get("resume_ollama", [])
         inaccessible = not points or points == ["Contenu non accessible pour ce site."] or points == ["Résumé non disponible."]
-
         if not inaccessible:
             contexte += f"\n[{i+1}] {titre} ({dom})\n"
             for p in points[:3]:
@@ -507,10 +501,8 @@ def generer_resume_global(sujet, articles):
             if body and len(body) > 40:
                 contexte += f"\n[{i+1}] {titre} ({dom})\n"
                 contexte += f"  - {body[:300]}\n"
-
     if not contexte.strip():
         return "Impossible de générer un résumé global (aucun contenu extrait)."
-
     try:
         resp = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
@@ -523,38 +515,29 @@ def generer_resume_global(sujet, articles):
                     {"role": "system",
                      "content": ("Tu es un analyste en veille technologique. "
                                  "Tu rédiges des synthèses concrètes en français. "
-                                 "Chaque point commence par un fait, un chiffre, ou un conseil direct. "
                                  "JAMAIS de participe présent (-ant). JAMAIS de généralités. "
                                  "Quand tu utilises une info d'un article, ajoute [N] à la fin.")},
                     {"role": "user",
-                     "content": f"""Voici les résumés de {len(articles)} articles différents sur : "{sujet}"
+                     "content": f"""Voici les résumés de {len(articles)} articles sur : "{sujet}"
 
 {contexte}
 
-RÈGLES OBLIGATOIRES :
-1. Tu DOIS citer chaque source au moins une fois : {", ".join(f"[{i+1}]" for i in range(min(len(articles),12)))}
-2. Chaque point cite la source [N] à la fin
-3. Ne cite JAMAIS la même source deux fois de suite
-4. Extrais une information différente de chaque source
+RÈGLES : cite chaque source {", ".join(f"[{i+1}]" for i in range(min(len(articles),12)))} au moins une fois.
 
 Format :
-
 — Menaces & risques identifiés
-- [fait de source 1] [1]
-- [fait de source 2] [2]
-- [fait de source 3] [3]
+- [fait] [N]
 
 — Comment se protéger
-- [conseil de source 4] [4]
-- [conseil de source 5] [5]
+- [conseil] [N]
 
-— Outils & technologies recommandés
-- [outil de source 6] [6]
+— Outils & technologies
+- [outil] [N]
 
 — Tendances à surveiller
-- [tendance de source 7] [7]
+- [tendance] [N]
 
-Continue avec toutes les sources restantes. Phrases directes et concrètes. N'invente rien."""}
+Phrases directes. N'invente rien."""}
                 ]
             }, timeout=30
         )
@@ -598,21 +581,14 @@ def effacer_historique():
 def comparer_sessions(sujet, session_nouvelle, session_ancienne):
     date_new = session_nouvelle.get("date", "récente")
     date_old = session_ancienne.get("date", "précédente")
-
     hrefs_anciens = {a["href"] for a in session_ancienne.get("articles", [])}
-    nouveaux = [a for a in session_nouvelle.get("articles", [])
-                if a["href"] not in hrefs_anciens]
-
+    nouveaux = [a for a in session_nouvelle.get("articles", []) if a["href"] not in hrefs_anciens]
     hrefs_nouveaux = {a["href"] for a in session_nouvelle.get("articles", [])}
-    disparus = [a for a in session_ancienne.get("articles", [])
-                if a["href"] not in hrefs_nouveaux]
-
+    disparus = [a for a in session_ancienne.get("articles", []) if a["href"] not in hrefs_nouveaux]
     if not nouveaux and not disparus:
-        return f"Aucune différence entre les sessions du {date_old} et du {date_new}.\nLes mêmes articles ont été trouvés."
-
+        return f"Aucune différence entre les sessions du {date_old} et du {date_new}."
     contexte = f"Session précédente : {date_old} ({len(session_ancienne.get('articles',[]))} articles)\n"
     contexte += f"Session récente : {date_new} ({len(session_nouvelle.get('articles',[]))} articles)\n\n"
-
     if nouveaux:
         contexte += f"NOUVEAUX ARTICLES ({len(nouveaux)}) :\n"
         for a in nouveaux[:6]:
@@ -621,12 +597,10 @@ def comparer_sessions(sujet, session_nouvelle, session_ancienne):
             if pts and pts != ["Contenu non accessible pour ce site."]:
                 for p in pts[:2]:
                     contexte += f"  · {p}\n"
-
     if disparus:
         contexte += f"\nARTICLES DISPARUS ({len(disparus)}) :\n"
         for a in disparus[:4]:
             contexte += f"- {a.get('title','')}\n"
-
     try:
         resp = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
@@ -636,19 +610,8 @@ def comparer_sessions(sujet, session_nouvelle, session_ancienne):
                 "model": "llama-3.3-70b-versatile",
                 "max_tokens": 1000,
                 "messages": [
-                    {"role": "system",
-                     "content": "Tu es un analyste en veille technologique. Tu compares deux sessions de recherche et identifies les nouveautés et évolutions importantes."},
-                    {"role": "user",
-                     "content": f"""Voici les différences entre deux sessions de veille sur : "{sujet}"
-
-{contexte}
-
-Rédige en français un résumé des évolutions :
-— Ce qui est nouveau
-— Ce qui a changé ou évolué
-— Ce qu'il faut retenir de ces nouveautés
-
-Sois concis et factuel."""}
+                    {"role": "system", "content": "Tu compares deux sessions de veille technologique et identifies les évolutions."},
+                    {"role": "user", "content": f"Sujet : \"{sujet}\"\n\n{contexte}\n\nRédige un résumé des évolutions : ce qui est nouveau, ce qui a changé, ce qu'il faut retenir."}
                 ]
             }, timeout=30
         )
@@ -670,14 +633,14 @@ def rechercher(sujet_brut, callback_statut=None):
     sous_sujets = [s.strip() for s in sujet_brut.split(",") if s.strip()]
     data, ids_vus = [], set()
 
-    statut("🔍 Recherche DuckDuckGo...")
+    statut("Recherche DuckDuckGo...")
     import warnings
     warnings.filterwarnings("ignore")
     try:
         with DDGS() as ddgs:
             for ss in sous_sujets:
                 queries = [
-                    ss + " intelligence artificielle actualité",
+                    ss + " intelligence artificielle actualite",
                     ss + " IA " + str(datetime.now().year),
                     ss + " artificial intelligence"
                 ]
@@ -689,9 +652,9 @@ def rechercher(sujet_brut, callback_statut=None):
                             r["sous_sujet"] = ss
                             data.append(r)
     except Exception as e:
-        statut(f"⚠️ DuckDuckGo : {e}")
+        statut(f"DuckDuckGo : {e}")
 
-    statut("📡 Récupération flux RSS...")
+    statut("Recuperation flux RSS...")
     if FEEDPARSER_OK:
         mots = [normaliser(m) for m in re.split(r"[,\s]+", sujet_brut) if len(m) > 2]
         for url_flux in FLUX_RSS_IA:
@@ -710,20 +673,16 @@ def rechercher(sujet_brut, callback_statut=None):
             except Exception:
                 continue
 
-    statut("⚙️ Filtrage et scoring...")
+    statut("Filtrage et scoring...")
     data = [r for r in data if not est_bloque(r, sujet_brut)]
     data = [scorer_resultat(r, sujet_brut) for r in data]
     data.sort(key=lambda x: x["score"], reverse=True)
     data = deduplique_semantique(data)
-
     filtres = [r for r in data if r["score"] >= 50]
     if not filtres:
         filtres = [r for r in data if r["score"] >= 35]
-
-    # Limite absolue pour éviter de dépasser les quotas Groq
     filtres = filtres[:50]
-
-    statut(f"✅ {len(filtres)} résultats trouvés")
+    statut(f"{len(filtres)} resultats trouves")
     return filtres
 
 # ============================================================
@@ -748,9 +707,7 @@ def _formater_resume_html(texte, articles_ref):
         ligne = ligne.strip()
         if not ligne:
             continue
-
         ligne = re.sub(r'\*\*', '', ligne).strip()
-
         if ligne.startswith("—") and len(ligne) > 2:
             titre = ligne.lstrip("— ").rstrip(": ").strip()
             html += (f"<div style='font-size:13px;font-weight:bold;color:#f9e2af;"
@@ -775,69 +732,41 @@ def _formater_resume_html(texte, articles_ref):
 
 def generer_bloc_mot_cle(mot_cle, articles, tab_id, resume_global_texte="", date_session="", badge=""):
     date_affichee = date_session or (articles[0].get("date_recherche", "N/A") if articles else "N/A")
-
     lignes_tableau = ""
     for a in articles:
         dom    = urlparse(a["href"]).netloc
-        langue = ("🇫🇷" if dom.endswith(".fr") or any(d in dom for d in DOMAINES_FR_PRIORITAIRES)
-                  else "🇬🇧")
+        langue = ("FR" if dom.endswith(".fr") or any(d in dom for d in DOMAINES_FR_PRIORITAIRES) else "EN")
         points = a.get("resume_ollama", [])
-
-        if points and points not in [["Contenu non accessible pour ce site."],
-                                      ["Résumé non disponible."]]:
+        if points and points not in [["Contenu non accessible pour ce site."], ["Résumé non disponible."]]:
             html_pts = "<ul style='margin:6px 0 0 0;padding-left:18px;'>"
             for pt in points:
                 pt_s = pt.replace("<","&lt;").replace(">","&gt;")
-                html_pts += (f"<li style='margin:4px 0;font-size:12px;color:#6c7086;"
-                             f"line-height:1.6;'>{pt_s}</li>")
+                html_pts += f"<li style='margin:4px 0;font-size:12px;color:#6c7086;line-height:1.6;'>{pt_s}</li>"
             html_pts += "</ul>"
         else:
-            html_pts = ("<div style='font-size:12px;color:#6c7086;margin-top:4px;"
-                        "font-style:italic;'>Résumé non disponible.</div>")
-
+            html_pts = "<div style='font-size:12px;color:#6c7086;margin-top:4px;font-style:italic;'>Résumé non disponible.</div>"
         doublon = a.get("doublon_de", "")
-        badge_doublon = ""
-        if doublon:
-            badge_doublon = (f"<span style='background:#f9e2af;color:#1e1e2e;font-size:10px;"
-                             f"padding:2px 6px;border-radius:8px;margin-left:6px;' "
-                             f"title='Contenu similaire à : {doublon}'>~ doublon</span>")
-
+        badge_doublon = f"<span style='background:#f9e2af;color:#1e1e2e;font-size:10px;padding:2px 6px;border-radius:8px;margin-left:6px;'>~ doublon</span>" if doublon else ""
         lignes_tableau += f"""
         <tr>
             <td style="padding:8px;text-align:center;vertical-align:top;">{langue}</td>
-            <td style="padding:8px;vertical-align:top;">
-                <strong>{a['title']}</strong>{badge_doublon}{html_pts}
-            </td>
+            <td style="padding:8px;vertical-align:top;"><strong>{a['title']}</strong>{badge_doublon}{html_pts}</td>
             <td style="padding:8px;text-align:center;vertical-align:top;white-space:nowrap;">
                 <a href="{a['href']}" style="color:#89b4fa;" target="_blank">ouvrir</a>
             </td>
         </tr>"""
-
     section_resume = ""
     if resume_global_texte:
         html_r = _formater_resume_html(resume_global_texte, articles)
         section_resume = f"""
-        <div style="margin-top:18px;padding:18px;
-                    background:linear-gradient(135deg,#1e1e2e,#2a2a3e);
-                    border-left:4px solid #f9e2af;border-radius:8px;">
-            <div style="font-size:14px;font-weight:bold;color:#f9e2af;margin-bottom:14px;">
-                Synthèse — {mot_cle}
-                <span style="font-size:11px;font-weight:normal;color:#a6adc8;">
-                    ({len(articles)} articles)
-                </span>
-            </div>
+        <div style="margin-top:18px;padding:18px;background:linear-gradient(135deg,#1e1e2e,#2a2a3e);border-left:4px solid #f9e2af;border-radius:8px;">
+            <div style="font-size:14px;font-weight:bold;color:#f9e2af;margin-bottom:14px;">Synthèse — {mot_cle} <span style="font-size:11px;font-weight:normal;color:#a6adc8;">({len(articles)} articles)</span></div>
             <div style="font-size:13px;color:#cdd6f4;">{html_r}</div>
         </div>"""
-
     return f"""
     <div style="margin-bottom:16px;">
-        <button onclick="var el=document.getElementById('{tab_id}_table');
-                         var open=el.style.display!=='none';
-                         el.style.display=open?'none':'block';
-                         this.querySelector('.arrow').textContent=open?'▼':'▲';"
-                style="cursor:pointer;font-size:14px;font-weight:bold;padding:10px 18px;
-                       background:#313244;color:#cdd6f4;
-                       border:none;border-radius:8px;width:100%;text-align:left;margin-bottom:4px;">
+        <button onclick="var el=document.getElementById('{tab_id}_table');var open=el.style.display!=='none';el.style.display=open?'none':'block';this.querySelector('.arrow').textContent=open?'▼':'▲';"
+                style="cursor:pointer;font-size:14px;font-weight:bold;padding:10px 18px;background:#313244;color:#cdd6f4;border:none;border-radius:8px;width:100%;text-align:left;margin-bottom:4px;">
             <span style="color:#a6adc8;font-size:12px;">Recherche du {date_affichee}</span>
             {badge}
             <span class="arrow" style="float:right;">▲</span>
@@ -860,37 +789,25 @@ def generer_contenu_html(historique, date):
                f"<p style='color:gray;font-size:13px;'>Derniere mise a jour : {date}</p><hr>")
     if not historique:
         return contenu + "<p style='color:gray;font-style:italic;'>Aucun resultat.</p>"
-
     idx = 0
     for mot_cle, sessions in historique.items():
         if mot_cle.startswith("__resume_global__") or not isinstance(sessions, list):
             continue
-
         if sessions and isinstance(sessions[0], dict) and "articles" in sessions[0]:
-            contenu += f"""
-            <div style="margin-bottom:32px;">
-            <div style="font-size:20px;font-weight:bold;color:#89b4fa;
-                        padding:12px 0;border-bottom:2px solid #45475a;margin-bottom:16px;">
-                {mot_cle.upper()}
-            </div>"""
+            contenu += f"<div style='margin-bottom:32px;'><div style='font-size:20px;font-weight:bold;color:#89b4fa;padding:12px 0;border-bottom:2px solid #45475a;margin-bottom:16px;'>{mot_cle.upper()}</div>"
             for si, session in enumerate(sessions):
                 date_session = session.get("date", "N/A")
                 articles = sorted(session.get("articles", []), key=lambda x: x.get("score",0), reverse=True)
                 rg = session.get("resume_global", "")
                 tab_id = f"tab_{idx}_{si}"
-
                 if not articles:
                     continue
-
                 badge = "<span style='background:#a6e3a1;color:#1e1e2e;font-size:10px;padding:2px 8px;border-radius:10px;margin-left:8px;'>NOUVEAU</span>" if si == 0 else ""
                 contenu += generer_bloc_mot_cle(mot_cle, articles, tab_id, rg, date_session, badge)
-
             contenu += "</div>"
-
         else:
             tries = sorted(sessions, key=lambda x: x.get("score",0), reverse=True)
             contenu += generer_bloc_mot_cle(mot_cle, tries, f"tab_{idx}_0", "", "Historique", "")
-
         idx += 1
     return contenu
 
@@ -920,9 +837,7 @@ p{{color:gray;font-size:13px;}}
 </head>
 <body>
 {contenu_body}
-<p style="margin-top:30px;text-align:center;font-size:11px;color:#45475a;">
-    Mis à jour le {date} — Veille technologique automatisée
-</p>
+<p style="margin-top:30px;text-align:center;font-size:11px;color:#45475a;">Mis à jour le {date} — Veille technologique automatisée</p>
 </body>
 </html>"""
 
@@ -942,7 +857,7 @@ def publier_wordpress(contenu, page_id):
             timeout=15
         )
         if r.status_code in [200, 201]:
-            return True, "✅ WordPress local mis à jour"
+            return True, "WordPress mis a jour"
         return False, f"Erreur WP {r.status_code}"
     except Exception as e:
         return False, f"Erreur WP : {e}"
@@ -963,7 +878,7 @@ def publier_ftp(contenu_html):
         chemin = ftp_cfg["path"] if ftp_cfg["path"] else f"{dossier}/veille-ia.html"
         ftp.storbinary(f"STOR {chemin}", io.BytesIO(contenu_html.encode("utf-8")))
         ftp.quit()
-        return True, f"✅ FTP → {chemin}"
+        return True, f"FTP OK -> {chemin}"
     except Exception as e:
         return False, f"Erreur FTP : {e}"
 
@@ -975,12 +890,11 @@ def creer_post_wordpress(contenu, sujet, date):
         r = requests.post(
             f"{base}/posts",
             headers=_get_wp_headers(),
-            json={"title": f"{sujet} — {date}",
-                  "content": contenu, "status": "publish"},
+            json={"title": f"{sujet} — {date}", "content": contenu, "status": "publish"},
             timeout=15
         )
         if r.status_code in [200, 201]:
-            return True, "✅ Post créé"
+            return True, "Post cree"
         return False, f"Erreur WP {r.status_code}"
     except Exception as e:
         return False, f"Erreur post : {e}"
@@ -1004,34 +918,21 @@ def supprimer_anciens_posts():
         return 0
 
 # ============================================================
-# WORKFLOW COMPLET — appelé par le client
+# WORKFLOW COMPLET
 # ============================================================
 
 def workflow_publier(sujet, resultats_recherche, callback_statut=None, limite=12):
-    """
-    Génère les résumés IA, met à jour l'historique par session de date,
-    publie sur WordPress local et FTP.
-    limite : nombre max d'articles à résumer (transmis depuis l'interface).
-    """
     def statut(msg):
-        if callback_statut: callback_statut(msg)
+        if callback_statut:
+            callback_statut(msg)
 
     sujet = sujet.strip().lower()
     date = datetime.now().strftime("%d/%m/%Y")
     historique = charger_historique()
-
     sessions = historique.get(sujet, [])
     tous_hrefs = {a["href"] for s in sessions for a in s.get("articles", [])}
 
-    articles_existants = {}
-    for s in sessions:
-        for a in s.get("articles", []):
-            if a["href"] not in articles_existants and a.get("resume_ollama"):
-                articles_existants[a["href"]] = a
-
     import time
-
-    # Applique la limite choisie par l'utilisateur (entre 1 et 50)
     nb_max = max(1, min(int(limite), 50))
     nouveaux_articles = []
 
@@ -1056,67 +957,51 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None, limite=12
         html_complet = generer_html_complet(contenu, date)
     else:
         nouveaux_articles = detecter_doublons_contenu(nouveaux_articles, sessions)
-
         resume_precedent = ""
         for s in sessions:
             rg = s.get("resume_global", "")
             if rg and not rg.startswith("Erreur") and not rg.startswith("Aucun"):
                 resume_precedent = rg
                 break
-
         statut("Synthese globale...")
         time.sleep(10)
         resume_global = generer_resume_global(sujet, nouveaux_articles)
-
         if resume_precedent and not resume_global.startswith("Erreur"):
-            similarite = SequenceMatcher(
-                None,
-                normaliser(resume_global),
-                normaliser(resume_precedent)
-            ).ratio()
+            similarite = SequenceMatcher(None, normaliser(resume_global), normaliser(resume_precedent)).ratio()
             if similarite > 0.85:
                 statut("Synthese similaire a la precedente — conservee.")
                 resume_global = resume_precedent
-
         session_du_jour = next((s for s in sessions if s.get("date") == date), None)
         if session_du_jour:
             session_du_jour["articles"].extend(nouveaux_articles)
             session_du_jour["resume_global"] = resume_global
         else:
-            sessions.insert(0, {
-                "date": date,
-                "articles": nouveaux_articles,
-                "resume_global": resume_global
-            })
-
+            sessions.insert(0, {"date": date, "articles": nouveaux_articles, "resume_global": resume_global})
         historique[sujet] = sessions
         sauvegarder_historique(historique)
-
         statut("Generation HTML...")
         contenu = generer_contenu_html(historique, date)
         html_complet = generer_html_complet(contenu, date)
 
     resultats = {}
-
     page_id = obtenir_ou_creer_page()
-    statut("Publication WordPress local...")
+    statut("Publication WordPress...")
     ok, msg = publier_wordpress(contenu, page_id)
     resultats["wordpress"] = (ok, msg)
-
     if ftp_est_configure():
         statut("Upload FTP...")
         ok2, msg2 = publier_ftp(html_complet)
         resultats["ftp"] = (ok2, msg2)
     else:
-        resultats["ftp"] = (True, "FTP non configure — ignoré")
-
-    statut("Publication terminée !")
+        resultats["ftp"] = (True, "FTP non configure — ignore")
+    statut("Publication terminee !")
     return resultats
 
 
 def workflow_creer_post(sujet, resultats_recherche, callback_statut=None):
     def statut(msg):
-        if callback_statut: callback_statut(msg)
+        if callback_statut:
+            callback_statut(msg)
 
     date = datetime.now().strftime("%d/%m/%Y")
     nb = len(resultats_recherche)
@@ -1124,11 +1009,10 @@ def workflow_creer_post(sujet, resultats_recherche, callback_statut=None):
     articles_pour_global = []
 
     for i, r in enumerate(resultats_recherche):
-        statut(f"🤖 Résumé IA {i+1}/{nb}...")
+        statut(f"Resume IA {i+1}/{nb}...")
         resume = resumer_article_ollama(r.get("title",""), r.get("href",""), r.get("body",""))
         dom    = urlparse(r["href"]).netloc
-        langue = ("🇫🇷" if dom.endswith(".fr") or any(d in dom for d in DOMAINES_FR_PRIORITAIRES)
-                  else "🇬🇧")
+        langue = "FR" if dom.endswith(".fr") or any(d in dom for d in DOMAINES_FR_PRIORITAIRES) else "EN"
         html_pts = "<ul style='margin:6px 0 0 0;padding-left:18px;'>"
         for pt in resume:
             html_pts += f"<li style='margin:4px 0;font-size:12px;color:#6c7086;'>{pt}</li>"
@@ -1137,29 +1021,24 @@ def workflow_creer_post(sujet, resultats_recherche, callback_statut=None):
         <tr>
             <td style="padding:8px;text-align:center;">{langue}</td>
             <td style="padding:8px;"><strong>{r['title']}</strong>{html_pts}</td>
-            <td style="padding:8px;text-align:center;">
-                <a href="{r['href']}" target="_blank">ouvrir</a></td>
+            <td style="padding:8px;text-align:center;"><a href="{r['href']}" target="_blank">ouvrir</a></td>
         </tr>"""
         articles_pour_global.append({**r, "resume_ollama": resume})
 
-    statut("🧠 Synthèse globale...")
+    statut("Synthese globale...")
     rg = generer_resume_global(sujet, articles_pour_global)
     rg_html = _formater_resume_html(rg, articles_pour_global)
-
     contenu = f"""
-    <h2>🔍 {sujet}</h2>
+    <h2>{sujet}</h2>
     <p style="color:gray;">Publié le {date}</p>
     <table border="1" style="border-collapse:collapse;width:100%;">
-    <tr style="background:#313244;color:#cdd6f4;">
-        <th>Langue</th><th>Titre &amp; Résumé</th><th>Lien</th>
-    </tr>{lignes}</table>
-    <div style="margin-top:24px;padding:18px;background:#f8f9fa;
-                border-left:4px solid #f9e2af;border-radius:8px;">
+    <tr style="background:#313244;color:#cdd6f4;"><th>Langue</th><th>Titre &amp; Résumé</th><th>Lien</th></tr>
+    {lignes}</table>
+    <div style="margin-top:24px;padding:18px;background:#f8f9fa;border-left:4px solid #f9e2af;border-radius:8px;">
         <strong>Synthèse — {sujet}</strong>
         <div style="margin-top:12px;font-size:13px;">{rg_html}</div>
     </div>"""
-
-    statut("📝 Création du post WordPress...")
+    statut("Creation du post WordPress...")
     ok, msg = creer_post_wordpress(contenu, sujet, date)
-    statut("✅ Post créé !" if ok else f"❌ {msg}")
+    statut("Post cree !" if ok else f"Erreur : {msg}")
     return ok, msg
