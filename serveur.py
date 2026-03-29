@@ -32,14 +32,11 @@ except ImportError:
 import os as _os
 
 def _resoudre_racine():
-    # 1. Variable d'env explicite (à définir dans Render → Environment)
     env = _os.environ.get("VEILLE_RACINE", "").strip()
     if env and _os.access(env, _os.W_OK):
         return env
-    # 2. /tmp — toujours accessible en écriture sur Render
     if _os.access("/tmp", _os.W_OK):
         return "/tmp"
-    # 3. Dossier du script (local)
     return _os.path.dirname(_os.path.abspath(__file__))
 
 _RACINE = _resoudre_racine()
@@ -55,7 +52,10 @@ HISTORIQUE_FILE      = _os.path.join(_APP, "historique_veille.json")
 # ==========================
 OLLAMA_URL   = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "mistral"
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "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")
+# BUG FIX 1 : La clé API Groq ne doit JAMAIS être codée en dur dans le source.
+# On lit uniquement la variable d'environnement ; si absente → chaîne vide (erreurs
+# Groq gérées proprement dans chaque appel).
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 FTP_REMOTE_PATH = "/htdocs/veille-ia.html"
 
@@ -235,7 +235,12 @@ def obtenir_ou_creer_page():
     try:
         r = requests.get(f"{base}/pages?search=Veille+IA&per_page=10",
                          headers=_get_wp_headers(), timeout=10)
-        for page in r.json():
+        # BUG FIX 2 : r.json() peut lever une exception ou renvoyer autre chose
+        # qu'une liste si WP répond avec une erreur JSON. On protège l'itération.
+        pages = r.json() if r.status_code == 200 else []
+        if not isinstance(pages, list):
+            pages = []
+        for page in pages:
             if "veille ia" in page.get("title", {}).get("rendered", "").lower():
                 pid = page["id"]
                 with open(VEILLE_PAGE_ID_FILE, "w") as f:
@@ -260,6 +265,9 @@ def obtenir_ou_creer_page():
 # ============================================================
 
 def normaliser(texte):
+    # BUG FIX 3 : texte peut être None (champ absent dans un résultat DDG/RSS)
+    if not texte:
+        return ""
     texte = texte.lower()
     return ''.join(
         c for c in unicodedata.normalize('NFD', texte)
@@ -439,6 +447,9 @@ def scorer_resultat(r, sujet):
 # ============================================================
 
 def resumer_article_ollama(titre, url, body_ddg):
+    # BUG FIX 4 : si GROQ_API_KEY est vide, on évite un appel voué à l'échec
+    if not GROQ_API_KEY:
+        return _resumer_fallback(body_ddg)
     texte  = extraire_texte_page(url)
     source = texte if len(texte) > 300 else body_ddg
     if not source or len(source.strip()) < 60:
@@ -469,11 +480,16 @@ def resumer_article_ollama(titre, url, body_ddg):
             phrases = re.split(r'(?<=[.!?])\s+', contenu)
             phrases = [p.strip() for p in phrases if len(p.strip()) > 40]
             return phrases[:5] if phrases else [contenu[:400]]
+        # BUG FIX 5 : on retourne le fallback quel que soit le code d'erreur,
+        # au lieu de retourner silencieusement None (appel à _resumer_fallback manquant)
         return _resumer_fallback(source)
     except Exception:
         return _resumer_fallback(source)
 
 def _resumer_fallback(source):
+    # BUG FIX 6 : source peut être None si body_ddg est None
+    if not source:
+        return ["Résumé non disponible."]
     phrases = re.split(r'(?<=[.!?])\s+', source)
     phrases = [p.strip() for p in phrases if 50 < len(p.strip()) < 400]
     return phrases[:4] if phrases else ["Résumé non disponible."]
@@ -485,6 +501,9 @@ def _resumer_fallback(source):
 def generer_resume_global(sujet, articles):
     if not articles:
         return "Aucun article analysé."
+    # BUG FIX 4 (suite) : guard GROQ_API_KEY
+    if not GROQ_API_KEY:
+        return "Clé API Groq manquante — résumé global indisponible."
     contexte = ""
     for i, a in enumerate(articles[:12]):
         titre  = a.get("title", "")
@@ -581,14 +600,18 @@ def effacer_historique():
 def comparer_sessions(sujet, session_nouvelle, session_ancienne):
     date_new = session_nouvelle.get("date", "récente")
     date_old = session_ancienne.get("date", "précédente")
-    hrefs_anciens = {a["href"] for a in session_ancienne.get("articles", [])}
-    nouveaux = [a for a in session_nouvelle.get("articles", []) if a["href"] not in hrefs_anciens]
-    hrefs_nouveaux = {a["href"] for a in session_nouvelle.get("articles", [])}
-    disparus = [a for a in session_ancienne.get("articles", []) if a["href"] not in hrefs_nouveaux]
+    # BUG FIX 7 : KeyError si "href" absent dans un article
+    hrefs_anciens  = {a["href"] for a in session_ancienne.get("articles", []) if "href" in a}
+    nouveaux       = [a for a in session_nouvelle.get("articles", []) if a.get("href") and a["href"] not in hrefs_anciens]
+    hrefs_nouveaux = {a["href"] for a in session_nouvelle.get("articles", []) if "href" in a}
+    disparus       = [a for a in session_ancienne.get("articles", []) if a.get("href") and a["href"] not in hrefs_nouveaux]
     if not nouveaux and not disparus:
         return f"Aucune différence entre les sessions du {date_old} et du {date_new}."
-    contexte = f"Session précédente : {date_old} ({len(session_ancienne.get('articles',[]))} articles)\n"
-    contexte += f"Session récente : {date_new} ({len(session_nouvelle.get('articles',[]))} articles)\n\n"
+    # BUG FIX 8 : session_ancienne.get('articles') peut être None → on force []
+    nb_anc = len(session_ancienne.get("articles") or [])
+    nb_new = len(session_nouvelle.get("articles") or [])
+    contexte = f"Session précédente : {date_old} ({nb_anc} articles)\n"
+    contexte += f"Session récente : {date_new} ({nb_new} articles)\n\n"
     if nouveaux:
         contexte += f"NOUVEAUX ARTICLES ({len(nouveaux)}) :\n"
         for a in nouveaux[:6]:
@@ -601,6 +624,9 @@ def comparer_sessions(sujet, session_nouvelle, session_ancienne):
         contexte += f"\nARTICLES DISPARUS ({len(disparus)}) :\n"
         for a in disparus[:4]:
             contexte += f"- {a.get('title','')}\n"
+    # BUG FIX 4 (suite) : guard GROQ_API_KEY
+    if not GROQ_API_KEY:
+        return contexte
     try:
         resp = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
@@ -645,7 +671,9 @@ def rechercher(sujet_brut, callback_statut=None):
                     ss + " artificial intelligence"
                 ]
                 for q in queries:
-                    for r in ddgs.text(q, region="fr-fr", max_results=25):
+                    # BUG FIX 9 : ddgs.text() peut renvoyer None sur certaines versions
+                    resultats_ddg = ddgs.text(q, region="fr-fr", max_results=25) or []
+                    for r in resultats_ddg:
                         lien = r.get("href", "#")
                         if lien not in ids_vus:
                             ids_vus.add(lien)
@@ -690,6 +718,9 @@ def rechercher(sujet_brut, callback_statut=None):
 # ============================================================
 
 def _formater_resume_html(texte, articles_ref):
+    # BUG FIX 10 : texte peut être None
+    if not texte:
+        return ""
     index_urls = {i+1: (a.get("href",""), urlparse(a.get("href","")).netloc)
                   for i, a in enumerate(articles_ref[:12])}
 
@@ -734,7 +765,7 @@ def generer_bloc_mot_cle(mot_cle, articles, tab_id, resume_global_texte="", date
     date_affichee = date_session or (articles[0].get("date_recherche", "N/A") if articles else "N/A")
     lignes_tableau = ""
     for a in articles:
-        dom    = urlparse(a["href"]).netloc
+        dom    = urlparse(a.get("href", "")).netloc
         langue = ("FR" if dom.endswith(".fr") or any(d in dom for d in DOMAINES_FR_PRIORITAIRES) else "EN")
         points = a.get("resume_ollama", [])
         if points and points not in [["Contenu non accessible pour ce site."], ["Résumé non disponible."]]:
@@ -746,13 +777,20 @@ def generer_bloc_mot_cle(mot_cle, articles, tab_id, resume_global_texte="", date
         else:
             html_pts = "<div style='font-size:12px;color:#6c7086;margin-top:4px;font-style:italic;'>Résumé non disponible.</div>"
         doublon = a.get("doublon_de", "")
-        badge_doublon = f"<span style='background:#f9e2af;color:#1e1e2e;font-size:10px;padding:2px 6px;border-radius:8px;margin-left:6px;'>~ doublon</span>" if doublon else ""
+        badge_doublon = (
+            "<span style='background:#f9e2af;color:#1e1e2e;font-size:10px;"
+            "padding:2px 6px;border-radius:8px;margin-left:6px;'>~ doublon</span>"
+            if doublon else ""
+        )
+        # BUG FIX 11 : a['title'] et a['href'] peuvent être absents → .get() défensif
+        titre_a = a.get("title", "Sans titre")
+        href_a  = a.get("href", "#")
         lignes_tableau += f"""
         <tr>
             <td style="padding:8px;text-align:center;vertical-align:top;">{langue}</td>
-            <td style="padding:8px;vertical-align:top;"><strong>{a['title']}</strong>{badge_doublon}{html_pts}</td>
+            <td style="padding:8px;vertical-align:top;"><strong>{titre_a}</strong>{badge_doublon}{html_pts}</td>
             <td style="padding:8px;text-align:center;vertical-align:top;white-space:nowrap;">
-                <a href="{a['href']}" style="color:#89b4fa;" target="_blank">ouvrir</a>
+                <a href="{href_a}" style="color:#89b4fa;" target="_blank">ouvrir</a>
             </td>
         </tr>"""
     section_resume = ""
@@ -802,7 +840,9 @@ def generer_contenu_html(historique, date):
                 tab_id = f"tab_{idx}_{si}"
                 if not articles:
                     continue
-                badge = "<span style='background:#a6e3a1;color:#1e1e2e;font-size:10px;padding:2px 8px;border-radius:10px;margin-left:8px;'>NOUVEAU</span>" if si == 0 else ""
+                badge = ("<span style='background:#a6e3a1;color:#1e1e2e;font-size:10px;"
+                         "padding:2px 8px;border-radius:10px;margin-left:8px;'>NOUVEAU</span>"
+                         if si == 0 else "")
                 contenu += generer_bloc_mot_cle(mot_cle, articles, tab_id, rg, date_session, badge)
             contenu += "</div>"
         else:
@@ -906,8 +946,12 @@ def supprimer_anciens_posts():
     try:
         r = requests.get(f"{base}/posts?per_page=100&status=publish,private,draft",
                          headers=_get_wp_headers(), timeout=15)
+        # BUG FIX 12 : r.json() peut ne pas être une liste si erreur WP
+        posts = r.json() if r.status_code == 200 else []
+        if not isinstance(posts, list):
+            return 0
         supprimes = 0
-        for post in r.json():
+        for post in posts:
             titre = post.get("title", {}).get("rendered", "").lower()
             if "veille ia" in titre or "veille :" in titre:
                 requests.delete(f"{base}/posts/{post['id']}?force=true",
@@ -930,7 +974,8 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None, limite=12
     date = datetime.now().strftime("%d/%m/%Y")
     historique = charger_historique()
     sessions = historique.get(sujet, [])
-    tous_hrefs = {a["href"] for s in sessions for a in s.get("articles", [])}
+    # BUG FIX 13 : KeyError si un article n'a pas de clé "href"
+    tous_hrefs = {a["href"] for s in sessions for a in s.get("articles", []) if "href" in a}
 
     import time
     nb_max = max(1, min(int(limite), 50))
@@ -938,11 +983,11 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None, limite=12
 
     for i, r in enumerate(resultats_recherche):
         href = r.get("href", "")
-        if href in tous_hrefs:
+        if not href or href in tous_hrefs:
             continue
         if len(nouveaux_articles) >= nb_max:
             break
-        statut(f"Resume IA {len(nouveaux_articles)+1}/{nb_max} : {r['title'][:45]}...")
+        statut(f"Resume IA {len(nouveaux_articles)+1}/{nb_max} : {r.get('title','')[:45]}...")
         resume = resumer_article_ollama(r.get("title",""), href, r.get("body",""))
         nouveaux_articles.append({
             "title": r.get("title",""), "href": href,
@@ -1011,17 +1056,20 @@ def workflow_creer_post(sujet, resultats_recherche, callback_statut=None):
     for i, r in enumerate(resultats_recherche):
         statut(f"Resume IA {i+1}/{nb}...")
         resume = resumer_article_ollama(r.get("title",""), r.get("href",""), r.get("body",""))
-        dom    = urlparse(r["href"]).netloc
+        dom    = urlparse(r.get("href","")).netloc
         langue = "FR" if dom.endswith(".fr") or any(d in dom for d in DOMAINES_FR_PRIORITAIRES) else "EN"
         html_pts = "<ul style='margin:6px 0 0 0;padding-left:18px;'>"
         for pt in resume:
             html_pts += f"<li style='margin:4px 0;font-size:12px;color:#6c7086;'>{pt}</li>"
         html_pts += "</ul>"
+        # BUG FIX 14 : r['href'] et r['title'] peuvent lever KeyError → .get() défensif
+        titre_r = r.get("title", "Sans titre")
+        href_r  = r.get("href", "#")
         lignes += f"""
         <tr>
             <td style="padding:8px;text-align:center;">{langue}</td>
-            <td style="padding:8px;"><strong>{r['title']}</strong>{html_pts}</td>
-            <td style="padding:8px;text-align:center;"><a href="{r['href']}" target="_blank">ouvrir</a></td>
+            <td style="padding:8px;"><strong>{titre_r}</strong>{html_pts}</td>
+            <td style="padding:8px;text-align:center;"><a href="{href_r}" target="_blank">ouvrir</a></td>
         </tr>"""
         articles_pour_global.append({**r, "resume_ollama": resume})
 
