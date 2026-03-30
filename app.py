@@ -294,7 +294,7 @@ def sidebar_simple():
         if st.button("🔑 Se connecter / S'inscrire",
                      use_container_width=True,
                      type="primary",
-                     key="btn_login_side"):
+                     key="btn_conn_side"):
             st.session_state["forcer_auth"] = True
             st.rerun()
 
@@ -311,7 +311,7 @@ def sidebar_simple():
             actif = st.session_state["onglet_actif"] == key
             if st.button(label, use_container_width=True,
                          type="primary" if actif else "secondary",
-                         key=f"nav_simple_{key}"):
+                         key=f"nav_s_{key}"):
                 st.session_state["onglet_actif"] = key
                 st.rerun()
 
