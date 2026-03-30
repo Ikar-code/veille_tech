@@ -97,9 +97,10 @@ hr{border-color:var(--border)!important;margin:16px 0!important;}
 # ============================================================
 def _init_state():
     defaults = {
-        "resultats":[],"sujet_courant":"","logs":[],
-        "en_cours":False,"onglet_actif":"veille",
-        "user":None,"session":None,"profil":{},
+    "resultats":[],"sujet_courant":"","logs":[],
+    "en_cours":False,"onglet_actif":"veille",
+    "user":None,"session":None,"profil":{},
+    "forcer_auth": False,   # ← ajoute cette ligne
     }
     for k,v in defaults.items():
         if k not in st.session_state:
@@ -286,7 +287,39 @@ def sidebar_connecte():
 
 def sidebar_simple():
     with st.sidebar:
+        st.markdown("## 🔭 Veille IA")
+        st.markdown("---")
+
+        # Bouton connexion
+        if st.button("🔑 Se connecter / S'inscrire",
+                     use_container_width=True,
+                     type="primary",
+                     key="btn_login_side"):
+            st.session_state["forcer_auth"] = True
+            st.rerun()
+
+        st.markdown("---")
         st.markdown("## Navigation")
+
+        pages = {
+            "🔍 Nouvelle veille": "veille",
+            "📚 Historique":      "historique",
+            "📊 Comparaison":     "comparaison",
+            "⚙️ Configuration":   "config",
+        }
+        for label, key in pages.items():
+            actif = st.session_state["onglet_actif"] == key
+            if st.button(label, use_container_width=True,
+                         type="primary" if actif else "secondary",
+                         key=f"nav_simple_{key}"):
+                st.session_state["onglet_actif"] = key
+                st.rerun()
+
+        st.markdown("---")
+        st.markdown(
+            '<p style="font-size:11px;color:var(--subtext);text-align:center;">'
+            'Veille auto · Groq · DuckDuckGo</p>',
+            unsafe_allow_html=True)
 
         pages = {
             "🔍 Nouvelle veille": "veille",
@@ -716,7 +749,8 @@ user=st.session_state.get("user")
 if user and STORAGE_OK:
     _activer_storage(user.id)
 
-if AUTH_OK and not user:
+if AUTH_OK and (not user or st.session_state.get("forcer_auth")):
+    st.session_state["forcer_auth"] = False
     page_auth()
 else:
     if AUTH_OK and user:
