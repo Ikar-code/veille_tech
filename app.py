@@ -260,6 +260,9 @@ def render_sidebar():
 # PAGE AUTH
 # ============================================================
 def page_auth():
+    if not AUTH_OK:
+        st.error("Service d'authentification indisponible.")
+        return
     col_l,col_c,col_r=st.columns([1,1.2,1])
     with col_c:
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
@@ -309,11 +312,14 @@ def page_auth():
 
             st.markdown("---")
             if st.button("🔵 Continuer avec Google", use_container_width=True, key="btn_google"):
-                url = auth.connecter_google()
-                if url:
-                    st.markdown(f'<meta http-equiv="refresh" content="0;url={url}">', unsafe_allow_html=True)
+                if AUTH_OK:
+                    url = auth.connecter_google()
+                    if url:
+                        st.markdown(f'<meta http-equiv="refresh" content="0;url={url}">', unsafe_allow_html=True)
+                    else:
+                        st.error("Google OAuth non configuré.")
                 else:
-                    st.error("Google OAuth non configuré.")
+                    st.error("Module auth non disponible.")
 
         with tab_in:
             st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
