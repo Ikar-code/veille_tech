@@ -1,6 +1,8 @@
 # ============================================================
 # SERVEUR — Logique métier de la veille technologique
-# Contient : recherche, scoring, résumés IA, publication WP/FTP
+# Corrections :
+#   - Storage injecté via contexte (pas de monkey-patch)
+#   - FTP : lecture + fusion du fichier existant, pas d'écrasement
 # ============================================================
 
 from ddgs import DDGS
@@ -24,10 +26,7 @@ except ImportError:
     FEEDPARSER_OK = False
 
 # ============================================================
-# FICHIERS DE DONNÉES
-# Sur Render : filesystem éphémère → on utilise /tmp
-# En local   : dossier .app/ à côté du script
-# Surcharge possible via VEILLE_RACINE dans les variables d'env Render
+# FICHIERS DE DONNÉES (fallback local)
 # ============================================================
 import os as _os
 
@@ -43,18 +42,64 @@ _RACINE = _resoudre_racine()
 _APP    = _os.path.join(_RACINE, ".app")
 _os.makedirs(_APP, exist_ok=True)
 
-CONFIG_FILE          = _os.path.join(_APP, "config.json")
-VEILLE_PAGE_ID_FILE  = _os.path.join(_APP, "veille_page_id.json")
-HISTORIQUE_FILE      = _os.path.join(_APP, "historique_veille.json")
+CONFIG_FILE         = _os.path.join(_APP, "config.json")
+VEILLE_PAGE_ID_FILE = _os.path.join(_APP, "veille_page_id.json")
+HISTORIQUE_FILE     = _os.path.join(_APP, "historique_veille.json")
 
-# ==========================
-# CONFIG OLLAMA & GROQ
-# ==========================
-OLLAMA_URL   = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "mistral"
-# BUG FIX 1 : La clé API Groq ne doit JAMAIS être codée en dur dans le source.
-# On lit uniquement la variable d'environnement ; si absente → chaîne vide (erreurs
-# Groq gérées proprement dans chaque appel).
+# ============================================================
+# CONTEXTE STORAGE — injecté depuis app.py ou cron.py
+# Évite le monkey-patching qui ne fonctionnait pas
+# ============================================================
+
+_storage_context = None
+
+def set_storage_context(ctx):
+    """
+    Injecte le module storage avec l'utilisateur déjà défini.
+    Appelé depuis app.py après connexion et depuis cron.py.
+    ctx doit exposer : charger_config, sauvegarder_config,
+                       charger_historique, sauvegarder_historique
+    """
+    global _storage_context
+    _storage_context = ctx
+
+def _charger_config_ctx():
+    if _storage_context:
+        try:
+            return _storage_context.charger_config()
+        except Exception:
+            pass
+    return charger_config_local()
+
+def _sauvegarder_config_ctx(cfg):
+    if _storage_context:
+        try:
+            _storage_context.sauvegarder_config(cfg)
+            return
+        except Exception:
+            pass
+    sauvegarder_config_local(cfg)
+
+def _charger_historique_ctx():
+    if _storage_context:
+        try:
+            return _storage_context.charger_historique()
+        except Exception:
+            pass
+    return charger_historique_local()
+
+def _sauvegarder_historique_ctx(h):
+    if _storage_context:
+        try:
+            _storage_context.sauvegarder_historique(h)
+            return
+        except Exception:
+            pass
+    sauvegarder_historique_local(h)
+
+# ============================================================
+# GROQ
+# ============================================================
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 FTP_REMOTE_PATH = "/htdocs/veille-ia.html"
@@ -64,48 +109,48 @@ HEADERS_WEB = {
                   "AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
 }
 
-# ==========================
+# ============================================================
 # DOMAINES
-# ==========================
+# ============================================================
 DOMAINES_FR_PRIORITAIRES = [
-    "lemonde.fr", "lefigaro.fr", "liberation.fr", "20minutes.fr",
-    "bfmtv.com", "franceinfo.fr", "numerama.com", "01net.com",
-    "futura-sciences.com", "journaldunet.com", "usine-digitale.fr",
-    "latribune.fr", "lesechos.fr"
+    "lemonde.fr","lefigaro.fr","liberation.fr","20minutes.fr",
+    "bfmtv.com","franceinfo.fr","numerama.com","01net.com",
+    "futura-sciences.com","journaldunet.com","usine-digitale.fr",
+    "latribune.fr","lesechos.fr"
 ]
 DOMAINES_EN_FIABLES = [
-    "bbc.com", "reuters.com", "theguardian.com", "techcrunch.com",
-    "wired.com", "forbes.com", "bloomberg.com", "nature.com",
-    "sciencedirect.com", "arxiv.org", "mit.edu", "stanford.edu",
-    "medium.com", "towardsdatascience.com"
+    "bbc.com","reuters.com","theguardian.com","techcrunch.com",
+    "wired.com","forbes.com","bloomberg.com","nature.com",
+    "sciencedirect.com","arxiv.org","mit.edu","stanford.edu",
+    "medium.com","towardsdatascience.com"
 ]
 DOMAINES_FAIBLE_QUALITE = [
-    "pinterest", "reddit", "quora", "yahoo", "forum", "amazon",
-    "ebay", "alibaba", "tiktok", "instagram", "convertflow",
-    "commoninja", "fouita", "jotform", "wix.com", "squarespace",
-    "canva", "typeform", "surveymonkey", "mailchimp"
+    "pinterest","reddit","quora","yahoo","forum","amazon",
+    "ebay","alibaba","tiktok","instagram","convertflow",
+    "commoninja","fouita","jotform","wix.com","squarespace",
+    "canva","typeform","surveymonkey","mailchimp"
 ]
 DOMAINES_GOUVERNEMENTAUX_BLOQUES = [
-    "securite-civile.interieur.gouv.fr", "police-nationale.interieur.gouv.fr",
-    "interieur.gouv.fr", "education.gouv.fr", "sante.gouv.fr",
-    "travail.gouv.fr", "justice.gouv.fr", "defense.gouv.fr",
-    "impots.gouv.fr", "caf.fr", "ameli.fr", "securite-sociale.fr",
-    "service-public.fr", "vie-publique.fr", "info.gouv.fr",
-    "elysee.fr", "premier-ministre.gouv.fr", "assemblee-nationale.fr",
-    "senat.fr", "legifrance.gouv.fr", "data.gouv.fr", "ansm.sante.fr",
-    "inrs.fr", "masecurite.fr", "securite-routiere.gouv.fr",
+    "securite-civile.interieur.gouv.fr","police-nationale.interieur.gouv.fr",
+    "interieur.gouv.fr","education.gouv.fr","sante.gouv.fr",
+    "travail.gouv.fr","justice.gouv.fr","defense.gouv.fr",
+    "impots.gouv.fr","caf.fr","ameli.fr","securite-sociale.fr",
+    "service-public.fr","vie-publique.fr","info.gouv.fr",
+    "elysee.fr","premier-ministre.gouv.fr","assemblee-nationale.fr",
+    "senat.fr","legifrance.gouv.fr","data.gouv.fr","ansm.sante.fr",
+    "inrs.fr","masecurite.fr","securite-routiere.gouv.fr",
 ]
 PATTERNS_GOUVERNEMENTAUX_BLOQUES = [
-    "securite-routiere", "assr", "bsr", "permis-conduire",
-    "sante-travail", "vaccination", "vaccin", "pharmacovigilance",
-    "police-nationale", "gendarmerie", "pompier", "securite-civile",
+    "securite-routiere","assr","bsr","permis-conduire",
+    "sante-travail","vaccination","vaccin","pharmacovigilance",
+    "police-nationale","gendarmerie","pompier","securite-civile",
 ]
 TITRES_HORS_SUJET = [
-    "attestation scolaire", "sécurité routière", "assr", "permis de conduire",
-    "vaccin", "pharmacovigilance", "sécurité des patients", "sécurité au travail",
-    "pression des pneus", "tpms", "sécurité civile", "police nationale",
-    "gendarmerie", "pompiers", "ministère de l'intérieur",
-    "sécurité sociale", "caf ", "impôts", "sénat", "assemblée nationale",
+    "attestation scolaire","sécurité routière","assr","permis de conduire",
+    "vaccin","pharmacovigilance","sécurité des patients","sécurité au travail",
+    "pression des pneus","tpms","sécurité civile","police nationale",
+    "gendarmerie","pompiers","ministère de l'intérieur",
+    "sécurité sociale","caf ","impôts","sénat","assemblée nationale",
 ]
 FLUX_RSS_IA = [
     "https://www.usine-digitale.fr/rss/intelligence-artificielle.xml",
@@ -117,20 +162,27 @@ FLUX_RSS_IA = [
 ]
 
 # ============================================================
-# GESTION CONFIGURATION
+# CONFIG — fonctions locales (fallback)
 # ============================================================
 
-def charger_config():
+def charger_config_local():
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return {}
 
-def sauvegarder_config(config: dict):
+def sauvegarder_config_local(config: dict):
     os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(config, f, ensure_ascii=False, indent=2)
+
+# Alias publics utilisés par app.py
+def charger_config():
+    return _charger_config_ctx()
+
+def sauvegarder_config(config: dict):
+    _sauvegarder_config_ctx(config)
 
 def tester_connexion_wp(url, user, pwd):
     if not url or not user or not pwd:
@@ -145,21 +197,18 @@ def tester_connexion_wp(url, user, pwd):
                          headers={"Authorization": f"Basic {token}"},
                          timeout=8)
         if r.status_code == 200:
-            nom = r.json().get("name", user)
-            return True, f"Connexion reussie ! Connecte en tant que : {nom}"
+            return True, f"Connexion reussie ! Connecte en tant que : {r.json().get('name', user)}"
         elif r.status_code == 401:
             return False, "Identifiants incorrects."
         elif r.status_code == 403:
-            return False, "Acces refuse. L'API REST est peut-etre desactivee."
+            return False, "Acces refuse."
         elif r.status_code == 404:
             return False, "URL introuvable."
         else:
             return False, f"Erreur {r.status_code}."
     except requests.exceptions.ConnectionError:
-        est_local = any(x in url.lower() for x in ["localhost", ".local", "127.0.0.1"])
-        if est_local:
-            return False, "Site local inaccessible."
-        return False, "Site distant inaccessible."
+        est_local = any(x in url.lower() for x in ["localhost",".local","127.0.0.1"])
+        return False, "Site local inaccessible." if est_local else "Site distant inaccessible."
     except requests.exceptions.Timeout:
         return False, "Delai depasse."
     except Exception as e:
@@ -194,7 +243,7 @@ def _ftp_config():
 
 def ftp_est_configure():
     cfg = _ftp_config()
-    placeholders = {"", "if0_xxxxxxx", "xxxx xxxx xxxx", "votre mot de passe ftp"}
+    placeholders = {"","if0_xxxxxxx","xxxx xxxx xxxx","votre mot de passe ftp"}
     host = cfg["host"].strip().lower()
     user = cfg["user"].strip().lower()
     pwd  = cfg["password"].strip().lower()
@@ -208,8 +257,8 @@ def ftp_est_configure():
 
 def _get_wp_headers():
     config = charger_config()
-    user = config.get("wp_user", "")
-    pwd  = config.get("wp_password", "")
+    user  = config.get("wp_user", "")
+    pwd   = config.get("wp_password", "")
     token = base64.b64encode(f"{user}:{pwd}".encode()).decode("utf-8")
     return {"Authorization": f"Basic {token}", "Content-Type": "application/json"}
 
@@ -235,13 +284,11 @@ def obtenir_ou_creer_page():
     try:
         r = requests.get(f"{base}/pages?search=Veille+IA&per_page=10",
                          headers=_get_wp_headers(), timeout=10)
-        # BUG FIX 2 : r.json() peut lever une exception ou renvoyer autre chose
-        # qu'une liste si WP répond avec une erreur JSON. On protège l'itération.
         pages = r.json() if r.status_code == 200 else []
         if not isinstance(pages, list):
             pages = []
         for page in pages:
-            if "veille ia" in page.get("title", {}).get("rendered", "").lower():
+            if "veille ia" in page.get("title",{}).get("rendered","").lower():
                 pid = page["id"]
                 with open(VEILLE_PAGE_ID_FILE, "w") as f:
                     json.dump({"id": pid}, f)
@@ -265,7 +312,6 @@ def obtenir_ou_creer_page():
 # ============================================================
 
 def normaliser(texte):
-    # BUG FIX 3 : texte peut être None (champ absent dans un résultat DDG/RSS)
     if not texte:
         return ""
     texte = texte.lower()
@@ -275,9 +321,9 @@ def normaliser(texte):
     )
 
 def est_bloque(r, sujet=""):
-    url   = r.get("href", "")
-    titre = normaliser(r.get("title", ""))
-    body  = normaliser(r.get("body", ""))
+    url   = r.get("href","")
+    titre = normaliser(r.get("title",""))
+    body  = normaliser(r.get("body",""))
     dom   = urlparse(url).netloc.lower()
     if any(d in dom for d in DOMAINES_GOUVERNEMENTAUX_BLOQUES):
         return True
@@ -296,7 +342,7 @@ def est_bloque(r, sujet=""):
 def deduplique_semantique(liste, seuil=0.75):
     uniques, titres_vus = [], []
     for r in liste:
-        titre = normaliser(r.get("title", ""))
+        titre = normaliser(r.get("title",""))
         if not any(SequenceMatcher(None, titre, t).ratio() > seuil for t in titres_vus):
             uniques.append(r)
             titres_vus.append(titre)
@@ -305,19 +351,17 @@ def deduplique_semantique(liste, seuil=0.75):
 def detecter_doublons_contenu(nouveaux_articles, sessions_existantes, seuil=0.70):
     resumes_existants = []
     for s in sessions_existantes:
-        for a in s.get("articles", []):
-            pts = a.get("resume_ollama", [])
+        for a in s.get("articles",[]):
+            pts = a.get("resume_ollama",[])
             if pts and pts != ["Contenu non accessible pour ce site."]:
-                texte = " ".join(pts).lower()
-                resumes_existants.append((texte, a.get("title", ""), a.get("href", "")))
+                resumes_existants.append((" ".join(pts).lower(), a.get("title",""), a.get("href","")))
     for article in nouveaux_articles:
-        pts = article.get("resume_ollama", [])
+        pts = article.get("resume_ollama",[])
         if not pts or pts == ["Contenu non accessible pour ce site."]:
             continue
         texte_nouveau = " ".join(pts).lower()
-        for texte_ancien, titre_ancien, href_ancien in resumes_existants:
-            ratio = SequenceMatcher(None, texte_nouveau, texte_ancien).ratio()
-            if ratio > seuil:
+        for texte_ancien, titre_ancien, _ in resumes_existants:
+            if SequenceMatcher(None, texte_nouveau, texte_ancien).ratio() > seuil:
                 article["doublon_de"] = titre_ancien[:60]
                 break
     return nouveaux_articles
@@ -380,9 +424,9 @@ def extraire_texte_page(url):
 
 def scorer_resultat(r, sujet):
     score = 0
-    url   = r.get("href", "")
-    titre = r.get("title", "")
-    body  = r.get("body",  "")
+    url   = r.get("href","")
+    titre = r.get("title","")
+    body  = r.get("body","")
     dom   = urlparse(url).netloc.lower()
     tn    = normaliser(titre)
     bn    = normaliser(body)
@@ -409,7 +453,8 @@ def scorer_resultat(r, sujet):
     sf = sum(1 for m in mots_fr if f" {m} " in td)
     se = sum(1 for m in mots_en if f" {m} " in td)
     sa = sum(1 for m in mots_autres if m in td)
-    est_fr = sf >= 2; est_en = se >= 2
+    est_fr    = sf >= 2
+    est_en    = se >= 2
     est_autre = sa >= 3 and not est_fr and not est_en
     if est_autre:                   score -= 200
     elif not est_fr and not est_en: score -= 80
@@ -443,11 +488,10 @@ def scorer_resultat(r, sujet):
     return r
 
 # ============================================================
-# RÉSUMÉS IA — PAR ARTICLE (Groq)
+# RÉSUMÉS IA (Groq)
 # ============================================================
 
 def resumer_article_ollama(titre, url, body_ddg):
-    # BUG FIX 4 : si GROQ_API_KEY est vide, on évite un appel voué à l'échec
     if not GROQ_API_KEY:
         return _resumer_fallback(body_ddg)
     texte  = extraire_texte_page(url)
@@ -472,22 +516,19 @@ def resumer_article_ollama(titre, url, body_ddg):
         )
         if resp.status_code == 200:
             contenu = resp.json()["choices"][0]["message"]["content"].strip()
-            points = [l.lstrip("•-–* ").strip()
-                      for l in contenu.splitlines()
-                      if l.strip() and l.strip()[0] in "•-–*" and len(l.strip()) > 30]
+            points  = [l.lstrip("•-–* ").strip()
+                       for l in contenu.splitlines()
+                       if l.strip() and l.strip()[0] in "•-–*" and len(l.strip()) > 30]
             if points:
                 return points[:5]
             phrases = re.split(r'(?<=[.!?])\s+', contenu)
             phrases = [p.strip() for p in phrases if len(p.strip()) > 40]
             return phrases[:5] if phrases else [contenu[:400]]
-        # BUG FIX 5 : on retourne le fallback quel que soit le code d'erreur,
-        # au lieu de retourner silencieusement None (appel à _resumer_fallback manquant)
         return _resumer_fallback(source)
     except Exception:
         return _resumer_fallback(source)
 
 def _resumer_fallback(source):
-    # BUG FIX 6 : source peut être None si body_ddg est None
     if not source:
         return ["Résumé non disponible."]
     phrases = re.split(r'(?<=[.!?])\s+', source)
@@ -501,27 +542,24 @@ def _resumer_fallback(source):
 def generer_resume_global(sujet, articles):
     if not articles:
         return "Aucun article analysé."
-    # BUG FIX 4 (suite) : guard GROQ_API_KEY
     if not GROQ_API_KEY:
-        return "Clé API Groq manquante — résumé global indisponible."
+        return "Clé API Groq manquante."
     contexte = ""
     for i, a in enumerate(articles[:12]):
-        titre  = a.get("title", "")
-        url    = a.get("href", "")
-        dom    = urlparse(url).netloc
-        points = a.get("resume_ollama", [])
-        inaccessible = not points or points == ["Contenu non accessible pour ce site."] or points == ["Résumé non disponible."]
-        if not inaccessible:
+        titre  = a.get("title","")
+        dom    = urlparse(a.get("href","")).netloc
+        points = a.get("resume_ollama",[])
+        inacc  = not points or points in [["Contenu non accessible pour ce site."],["Résumé non disponible."]]
+        if not inacc:
             contexte += f"\n[{i+1}] {titre} ({dom})\n"
             for p in points[:3]:
                 contexte += f"  - {p}\n"
         else:
-            body = a.get("body", "").strip()
+            body = a.get("body","").strip()
             if body and len(body) > 40:
-                contexte += f"\n[{i+1}] {titre} ({dom})\n"
-                contexte += f"  - {body[:300]}\n"
+                contexte += f"\n[{i+1}] {titre} ({dom})\n  - {body[:300]}\n"
     if not contexte.strip():
-        return "Impossible de générer un résumé global (aucun contenu extrait)."
+        return "Impossible de générer un résumé global."
     try:
         resp = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
@@ -569,8 +607,8 @@ Phrases directes. N'invente rien."""}
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {GROQ_API_KEY}",
                          "Content-Type": "application/json"},
-                json={"model": "llama-3.3-70b-versatile", "max_tokens": 3000,
-                      "messages": [{"role": "user", "content": contexte[:2000]}]},
+                json={"model":"llama-3.3-70b-versatile","max_tokens":3000,
+                      "messages":[{"role":"user","content":contexte[:2000]}]},
                 timeout=30
             )
             if resp2.status_code == 200:
@@ -580,42 +618,46 @@ Phrases directes. N'invente rien."""}
         return f"Erreur résumé global : {e}"
 
 # ============================================================
-# HISTORIQUE
+# HISTORIQUE — fonctions locales (fallback)
 # ============================================================
 
-def charger_historique():
+def charger_historique_local():
     try:
         with open(HISTORIQUE_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return {}
 
-def sauvegarder_historique(h):
+def sauvegarder_historique_local(h):
     with open(HISTORIQUE_FILE, "w", encoding="utf-8") as f:
         json.dump(h, f, ensure_ascii=False, indent=2)
 
+# Alias publics
+def charger_historique():
+    return _charger_historique_ctx()
+
+def sauvegarder_historique(h):
+    _sauvegarder_historique_ctx(h)
+
 def effacer_historique():
-    sauvegarder_historique({})
+    _sauvegarder_historique_ctx({})
 
 def comparer_sessions(sujet, session_nouvelle, session_ancienne):
-    date_new = session_nouvelle.get("date", "récente")
-    date_old = session_ancienne.get("date", "précédente")
-    # BUG FIX 7 : KeyError si "href" absent dans un article
-    hrefs_anciens  = {a["href"] for a in session_ancienne.get("articles", []) if "href" in a}
-    nouveaux       = [a for a in session_nouvelle.get("articles", []) if a.get("href") and a["href"] not in hrefs_anciens]
-    hrefs_nouveaux = {a["href"] for a in session_nouvelle.get("articles", []) if "href" in a}
-    disparus       = [a for a in session_ancienne.get("articles", []) if a.get("href") and a["href"] not in hrefs_nouveaux]
+    date_new = session_nouvelle.get("date","récente")
+    date_old = session_ancienne.get("date","précédente")
+    hrefs_anciens  = {a["href"] for a in session_ancienne.get("articles",[]) if "href" in a}
+    nouveaux       = [a for a in session_nouvelle.get("articles",[]) if a.get("href") and a["href"] not in hrefs_anciens]
+    hrefs_nouveaux = {a["href"] for a in session_nouvelle.get("articles",[]) if "href" in a}
+    disparus       = [a for a in session_ancienne.get("articles",[]) if a.get("href") and a["href"] not in hrefs_nouveaux]
     if not nouveaux and not disparus:
         return f"Aucune différence entre les sessions du {date_old} et du {date_new}."
-    # BUG FIX 8 : session_ancienne.get('articles') peut être None → on force []
-    nb_anc = len(session_ancienne.get("articles") or [])
-    nb_new = len(session_nouvelle.get("articles") or [])
-    contexte = f"Session précédente : {date_old} ({nb_anc} articles)\n"
-    contexte += f"Session récente : {date_new} ({nb_new} articles)\n\n"
+    nb_anc   = len(session_ancienne.get("articles") or [])
+    nb_new   = len(session_nouvelle.get("articles") or [])
+    contexte = f"Session précédente : {date_old} ({nb_anc} articles)\nSession récente : {date_new} ({nb_new} articles)\n\n"
     if nouveaux:
         contexte += f"NOUVEAUX ARTICLES ({len(nouveaux)}) :\n"
         for a in nouveaux[:6]:
-            pts = a.get("resume_ollama", [])
+            pts = a.get("resume_ollama",[])
             contexte += f"- {a.get('title','')}\n"
             if pts and pts != ["Contenu non accessible pour ce site."]:
                 for p in pts[:2]:
@@ -624,7 +666,6 @@ def comparer_sessions(sujet, session_nouvelle, session_ancienne):
         contexte += f"\nARTICLES DISPARUS ({len(disparus)}) :\n"
         for a in disparus[:4]:
             contexte += f"- {a.get('title','')}\n"
-    # BUG FIX 4 (suite) : guard GROQ_API_KEY
     if not GROQ_API_KEY:
         return contexte
     try:
@@ -636,8 +677,8 @@ def comparer_sessions(sujet, session_nouvelle, session_ancienne):
                 "model": "llama-3.3-70b-versatile",
                 "max_tokens": 1000,
                 "messages": [
-                    {"role": "system", "content": "Tu compares deux sessions de veille technologique et identifies les évolutions."},
-                    {"role": "user", "content": f"Sujet : \"{sujet}\"\n\n{contexte}\n\nRédige un résumé des évolutions : ce qui est nouveau, ce qui a changé, ce qu'il faut retenir."}
+                    {"role":"system","content":"Tu compares deux sessions de veille technologique."},
+                    {"role":"user","content":f"Sujet : \"{sujet}\"\n\n{contexte}\n\nRédige un résumé des évolutions."}
                 ]
             }, timeout=30
         )
@@ -671,10 +712,9 @@ def rechercher(sujet_brut, callback_statut=None):
                     ss + " artificial intelligence"
                 ]
                 for q in queries:
-                    # BUG FIX 9 : ddgs.text() peut renvoyer None sur certaines versions
                     resultats_ddg = ddgs.text(q, region="fr-fr", max_results=25) or []
                     for r in resultats_ddg:
-                        lien = r.get("href", "#")
+                        lien = r.get("href","#")
                         if lien not in ids_vus:
                             ids_vus.add(lien)
                             r["sous_sujet"] = ss
@@ -689,15 +729,16 @@ def rechercher(sujet_brut, callback_statut=None):
             try:
                 feed = feedparser.parse(url_flux)
                 for entry in feed.entries[:20]:
-                    lien  = entry.get("link", "")
-                    titre = entry.get("title", "")
-                    body  = entry.get("summary", "")
+                    lien  = entry.get("link","")
+                    titre = entry.get("title","")
+                    body  = entry.get("summary","")
                     if not lien or lien in ids_vus:
                         continue
-                    tn = normaliser(titre); bn = normaliser(body)
+                    tn = normaliser(titre)
+                    bn = normaliser(body)
                     if any(m in tn or m in bn for m in mots):
                         ids_vus.add(lien)
-                        data.append({"title": titre, "body": body, "href": lien, "source": "rss"})
+                        data.append({"title":titre,"body":body,"href":lien,"source":"rss"})
             except Exception:
                 continue
 
@@ -718,7 +759,6 @@ def rechercher(sujet_brut, callback_statut=None):
 # ============================================================
 
 def _formater_resume_html(texte, articles_ref):
-    # BUG FIX 10 : texte peut être None
     if not texte:
         return ""
     index_urls = {i+1: (a.get("href",""), urlparse(a.get("href","")).netloc)
@@ -741,34 +781,29 @@ def _formater_resume_html(texte, articles_ref):
         ligne = re.sub(r'\*\*', '', ligne).strip()
         if ligne.startswith("—") and len(ligne) > 2:
             titre = ligne.lstrip("— ").rstrip(": ").strip()
-            html += (f"<div style='font-size:13px;font-weight:bold;color:#f9e2af;"
-                     f"margin:14px 0 6px 0;'>— {titre}</div>")
+            html += f"<div style='font-size:13px;font-weight:bold;color:#f9e2af;margin:14px 0 6px 0;'>— {titre}</div>"
         elif ligne.startswith("##"):
             titre = ligne.lstrip("# ").rstrip(": ").strip()
-            html += (f"<div style='font-size:13px;font-weight:bold;color:#f9e2af;"
-                     f"margin:14px 0 6px 0;'>— {titre}</div>")
-        elif ligne.startswith(("- ", "* ", "• ")):
-            point = ligne.lstrip("-*• ").strip()
-            point = re.sub(r'\*\*', '', point)
+            html += f"<div style='font-size:13px;font-weight:bold;color:#f9e2af;margin:14px 0 6px 0;'>— {titre}</div>"
+        elif ligne.startswith(("- ","* ","• ")):
+            point = re.sub(r'\*\*', '', ligne.lstrip("-*• ").strip())
             point = point.replace("<","&lt;").replace(">","&gt;")
             point = re.sub(r'\[(\d+)\]', remplacer_citation, point)
-            html += (f"<div style='padding:3px 0 3px 14px;border-left:2px solid #45475a;"
-                     f"margin:3px 0;line-height:1.6;'>{point}</div>")
+            html += f"<div style='padding:3px 0 3px 14px;border-left:2px solid #45475a;margin:3px 0;line-height:1.6;'>{point}</div>"
         else:
-            ligne = re.sub(r'\*\*', '', ligne)
-            ligne = ligne.replace("<","&lt;").replace(">","&gt;")
+            ligne = re.sub(r'\*\*', '', ligne).replace("<","&lt;").replace(">","&gt;")
             ligne = re.sub(r'\[(\d+)\]', remplacer_citation, ligne)
             html += f"<p style='margin:6px 0;line-height:1.7;'>{ligne}</p>"
     return html
 
 def generer_bloc_mot_cle(mot_cle, articles, tab_id, resume_global_texte="", date_session="", badge=""):
-    date_affichee = date_session or (articles[0].get("date_recherche", "N/A") if articles else "N/A")
+    date_affichee = date_session or (articles[0].get("date_recherche","N/A") if articles else "N/A")
     lignes_tableau = ""
     for a in articles:
-        dom    = urlparse(a.get("href", "")).netloc
-        langue = ("FR" if dom.endswith(".fr") or any(d in dom for d in DOMAINES_FR_PRIORITAIRES) else "EN")
-        points = a.get("resume_ollama", [])
-        if points and points not in [["Contenu non accessible pour ce site."], ["Résumé non disponible."]]:
+        dom    = urlparse(a.get("href","")).netloc
+        langue = "FR" if dom.endswith(".fr") or any(d in dom for d in DOMAINES_FR_PRIORITAIRES) else "EN"
+        points = a.get("resume_ollama",[])
+        if points and points not in [["Contenu non accessible pour ce site."],["Résumé non disponible."]]:
             html_pts = "<ul style='margin:6px 0 0 0;padding-left:18px;'>"
             for pt in points:
                 pt_s = pt.replace("<","&lt;").replace(">","&gt;")
@@ -776,15 +811,10 @@ def generer_bloc_mot_cle(mot_cle, articles, tab_id, resume_global_texte="", date
             html_pts += "</ul>"
         else:
             html_pts = "<div style='font-size:12px;color:#6c7086;margin-top:4px;font-style:italic;'>Résumé non disponible.</div>"
-        doublon = a.get("doublon_de", "")
-        badge_doublon = (
-            "<span style='background:#f9e2af;color:#1e1e2e;font-size:10px;"
-            "padding:2px 6px;border-radius:8px;margin-left:6px;'>~ doublon</span>"
-            if doublon else ""
-        )
-        # BUG FIX 11 : a['title'] et a['href'] peuvent être absents → .get() défensif
-        titre_a = a.get("title", "Sans titre")
-        href_a  = a.get("href", "#")
+        doublon      = a.get("doublon_de","")
+        badge_doublon = ("<span style='background:#f9e2af;color:#1e1e2e;font-size:10px;padding:2px 6px;border-radius:8px;margin-left:6px;'>~ doublon</span>" if doublon else "")
+        titre_a = a.get("title","Sans titre")
+        href_a  = a.get("href","#")
         lignes_tableau += f"""
         <tr>
             <td style="padding:8px;text-align:center;vertical-align:top;">{langue}</td>
@@ -834,15 +864,13 @@ def generer_contenu_html(historique, date):
         if sessions and isinstance(sessions[0], dict) and "articles" in sessions[0]:
             contenu += f"<div style='margin-bottom:32px;'><div style='font-size:20px;font-weight:bold;color:#89b4fa;padding:12px 0;border-bottom:2px solid #45475a;margin-bottom:16px;'>{mot_cle.upper()}</div>"
             for si, session in enumerate(sessions):
-                date_session = session.get("date", "N/A")
-                articles = sorted(session.get("articles", []), key=lambda x: x.get("score",0), reverse=True)
-                rg = session.get("resume_global", "")
-                tab_id = f"tab_{idx}_{si}"
+                date_session = session.get("date","N/A")
+                articles     = sorted(session.get("articles",[]), key=lambda x: x.get("score",0), reverse=True)
+                rg           = session.get("resume_global","")
+                tab_id       = f"tab_{idx}_{si}"
                 if not articles:
                     continue
-                badge = ("<span style='background:#a6e3a1;color:#1e1e2e;font-size:10px;"
-                         "padding:2px 8px;border-radius:10px;margin-left:8px;'>NOUVEAU</span>"
-                         if si == 0 else "")
+                badge = ("<span style='background:#a6e3a1;color:#1e1e2e;font-size:10px;padding:2px 8px;border-radius:10px;margin-left:8px;'>NOUVEAU</span>" if si == 0 else "")
                 contenu += generer_bloc_mot_cle(mot_cle, articles, tab_id, rg, date_session, badge)
             contenu += "</div>"
         else:
@@ -893,32 +921,118 @@ def publier_wordpress(contenu, page_id):
         r = requests.post(
             f"{base}/pages/{page_id}",
             headers=_get_wp_headers(),
-            json={"title": "Veille Technologique", "content": contenu, "status": "publish"},
+            json={"title":"Veille Technologique","content":contenu,"status":"publish"},
             timeout=15
         )
-        if r.status_code in [200, 201]:
+        if r.status_code in [200,201]:
             return True, "WordPress mis a jour"
         return False, f"Erreur WP {r.status_code}"
     except Exception as e:
         return False, f"Erreur WP : {e}"
 
+def _lire_html_ftp(ftp, chemin):
+    """Lit le fichier HTML existant sur le FTP. Retourne le contenu ou None."""
+    try:
+        buf = io.BytesIO()
+        ftp.retrbinary(f"RETR {chemin}", buf.write)
+        return buf.getvalue().decode("utf-8", errors="replace")
+    except Exception:
+        return None
+
+def _extraire_sujets_existants(html_existant):
+    """
+    Extrait les blocs de sujet déjà présents dans le HTML FTP.
+    Retourne un dict {sujet_upper: bloc_html}
+    """
+    if not html_existant:
+        return {}
+    sujets = {}
+    # Cherche les div de sujet par leur titre en majuscules
+    pattern = re.compile(
+        r"<div style='margin-bottom:32px;'>.*?<div style='font-size:20px;font-weight:bold;color:#89b4fa;[^']*'[^>]*>([^<]+)</div>(.*?)</div>\s*(?=<div style='margin-bottom:32px;'>|<p style=\"margin-top:30px)",
+        re.DOTALL
+    )
+    for m in pattern.finditer(html_existant):
+        sujet_titre = m.group(1).strip()
+        sujets[sujet_titre] = m.group(0)
+    return sujets
+
 def publier_ftp(contenu_html):
+    """
+    Publie le fichier HTML sur FTP.
+    Si le fichier existe déjà, FUSIONNE le contenu :
+    - Les sujets déjà présents sont mis à jour avec le nouveau contenu
+    - Les sujets absents du nouveau contenu sont conservés
+    """
     ftp_cfg = _ftp_config()
     try:
         ftp = ftplib.FTP()
         ftp.connect(ftp_cfg["host"], 21, timeout=30)
         ftp.login(ftp_cfg["user"], ftp_cfg["password"])
+
         racine = ftp.nlst()
         dossier = "/htdocs"
         if "htdocs" not in racine:
             for d in racine:
-                if any(x in d.lower() for x in ["htdocs", "www", "public"]):
+                if any(x in d.lower() for x in ["htdocs","www","public"]):
                     dossier = f"/{d}"
                     break
         chemin = ftp_cfg["path"] if ftp_cfg["path"] else f"{dossier}/veille-ia.html"
-        ftp.storbinary(f"STOR {chemin}", io.BytesIO(contenu_html.encode("utf-8")))
+
+        # Lecture du fichier existant
+        html_existant = _lire_html_ftp(ftp, chemin)
+
+        if html_existant:
+            # Extrait le <body> du nouveau HTML
+            body_match = re.search(r"<body[^>]*>(.*?)</body>", contenu_html, re.DOTALL)
+            body_nouveau = body_match.group(1).strip() if body_match else contenu_html
+
+            # Extrait le <body> de l'existant
+            body_exist_match = re.search(r"<body[^>]*>(.*?)</body>", html_existant, re.DOTALL)
+            body_existant = body_exist_match.group(1).strip() if body_exist_match else ""
+
+            # Extrait les blocs de sujet existants
+            sujets_existants = {}
+            pattern_sujet = re.compile(
+                r"(<div style='margin-bottom:32px;'>"
+                r"<div style='font-size:20px;font-weight:bold;color:#89b4fa;[^>]*>([^<]+)</div>"
+                r".*?</div>\s*</div>)",
+                re.DOTALL
+            )
+            for m in pattern_sujet.finditer(body_existant):
+                titre = m.group(2).strip().lower()
+                sujets_existants[titre] = m.group(1)
+
+            # Extrait les blocs du nouveau HTML
+            sujets_nouveaux = {}
+            for m in pattern_sujet.finditer(body_nouveau):
+                titre = m.group(2).strip().lower()
+                sujets_nouveaux[titre] = m.group(1)
+
+            # Fusion : nouveaux remplacent existants, anciens conservés
+            sujets_fusionnes = {**sujets_existants, **sujets_nouveaux}
+
+            # Reconstruit le body
+            entete = re.search(r"^(.*?)<div style='margin-bottom:32px;'>", body_nouveau, re.DOTALL)
+            entete_html = entete.group(1) if entete else "<h2>Résultats par sujet</h2>"
+            pied = f"<p style=\"margin-top:30px;text-align:center;font-size:11px;color:#45475a;\">Mis à jour le {datetime.now().strftime('%d/%m/%Y')} — Veille technologique automatisée</p>"
+
+            body_final = entete_html + "\n".join(sujets_fusionnes.values()) + "\n" + pied
+
+            # Reconstruit le HTML complet
+            html_final = re.sub(
+                r"<body[^>]*>.*?</body>",
+                f"<body>{body_final}</body>",
+                contenu_html,
+                flags=re.DOTALL
+            )
+        else:
+            # Pas de fichier existant — on envoie directement
+            html_final = contenu_html
+
+        ftp.storbinary(f"STOR {chemin}", io.BytesIO(html_final.encode("utf-8")))
         ftp.quit()
-        return True, f"FTP OK -> {chemin}"
+        return True, f"FTP OK → {chemin} (fusion)"
     except Exception as e:
         return False, f"Erreur FTP : {e}"
 
@@ -930,10 +1044,10 @@ def creer_post_wordpress(contenu, sujet, date):
         r = requests.post(
             f"{base}/posts",
             headers=_get_wp_headers(),
-            json={"title": f"{sujet} — {date}", "content": contenu, "status": "publish"},
+            json={"title":f"{sujet} — {date}","content":contenu,"status":"publish"},
             timeout=15
         )
-        if r.status_code in [200, 201]:
+        if r.status_code in [200,201]:
             return True, "Post cree"
         return False, f"Erreur WP {r.status_code}"
     except Exception as e:
@@ -946,13 +1060,12 @@ def supprimer_anciens_posts():
     try:
         r = requests.get(f"{base}/posts?per_page=100&status=publish,private,draft",
                          headers=_get_wp_headers(), timeout=15)
-        # BUG FIX 12 : r.json() peut ne pas être une liste si erreur WP
         posts = r.json() if r.status_code == 200 else []
         if not isinstance(posts, list):
             return 0
         supprimes = 0
         for post in posts:
-            titre = post.get("title", {}).get("rendered", "").lower()
+            titre = post.get("title",{}).get("rendered","").lower()
             if "veille ia" in titre or "veille :" in titre:
                 requests.delete(f"{base}/posts/{post['id']}?force=true",
                                 headers=_get_wp_headers(), timeout=10)
@@ -971,18 +1084,19 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None, limite=12
             callback_statut(msg)
 
     sujet = sujet.strip().lower()
-    date = datetime.now().strftime("%d/%m/%Y")
-    historique = charger_historique()
-    sessions = historique.get(sujet, [])
-    # BUG FIX 13 : KeyError si un article n'a pas de clé "href"
-    tous_hrefs = {a["href"] for s in sessions for a in s.get("articles", []) if "href" in a}
+    date  = datetime.now().strftime("%d/%m/%Y")
+
+    # Charge via le contexte storage (Supabase si dispo, fichier sinon)
+    historique = _charger_historique_ctx()
+    sessions   = historique.get(sujet, [])
+    tous_hrefs = {a["href"] for s in sessions for a in s.get("articles",[]) if "href" in a}
 
     import time
-    nb_max = max(1, min(int(limite), 50))
+    nb_max            = max(1, min(int(limite), 50))
     nouveaux_articles = []
 
     for i, r in enumerate(resultats_recherche):
-        href = r.get("href", "")
+        href = r.get("href","")
         if not href or href in tous_hrefs:
             continue
         if len(nouveaux_articles) >= nb_max:
@@ -990,55 +1104,69 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None, limite=12
         statut(f"Resume IA {len(nouveaux_articles)+1}/{nb_max} : {r.get('title','')[:45]}...")
         resume = resumer_article_ollama(r.get("title",""), href, r.get("body",""))
         nouveaux_articles.append({
-            "title": r.get("title",""), "href": href,
-            "score": r.get("score",0), "resume_ollama": resume,
-            "date_recherche": date
+            "title":         r.get("title",""),
+            "href":          href,
+            "score":         r.get("score",0),
+            "resume_ollama": resume,
+            "date_recherche":date
         })
         time.sleep(4)
 
     if not nouveaux_articles:
         statut("Aucun nouvel article — historique inchange.")
-        contenu = generer_contenu_html(historique, date)
+        contenu      = generer_contenu_html(historique, date)
         html_complet = generer_html_complet(contenu, date)
     else:
         nouveaux_articles = detecter_doublons_contenu(nouveaux_articles, sessions)
+
         resume_precedent = ""
         for s in sessions:
-            rg = s.get("resume_global", "")
+            rg = s.get("resume_global","")
             if rg and not rg.startswith("Erreur") and not rg.startswith("Aucun"):
                 resume_precedent = rg
                 break
+
         statut("Synthese globale...")
         time.sleep(10)
         resume_global = generer_resume_global(sujet, nouveaux_articles)
+
         if resume_precedent and not resume_global.startswith("Erreur"):
-            similarite = SequenceMatcher(None, normaliser(resume_global), normaliser(resume_precedent)).ratio()
-            if similarite > 0.85:
-                statut("Synthese similaire a la precedente — conservee.")
+            if SequenceMatcher(None, normaliser(resume_global), normaliser(resume_precedent)).ratio() > 0.85:
+                statut("Synthese similaire — conservee.")
                 resume_global = resume_precedent
+
         session_du_jour = next((s for s in sessions if s.get("date") == date), None)
         if session_du_jour:
             session_du_jour["articles"].extend(nouveaux_articles)
             session_du_jour["resume_global"] = resume_global
         else:
-            sessions.insert(0, {"date": date, "articles": nouveaux_articles, "resume_global": resume_global})
+            sessions.insert(0, {
+                "date":          date,
+                "articles":      nouveaux_articles,
+                "resume_global": resume_global
+            })
+
         historique[sujet] = sessions
-        sauvegarder_historique(historique)
+        # Sauvegarde via le contexte storage (Supabase si dispo)
+        _sauvegarder_historique_ctx(historique)
+
         statut("Generation HTML...")
-        contenu = generer_contenu_html(historique, date)
+        contenu      = generer_contenu_html(historique, date)
         html_complet = generer_html_complet(contenu, date)
 
     resultats = {}
-    page_id = obtenir_ou_creer_page()
+    page_id   = obtenir_ou_creer_page()
     statut("Publication WordPress...")
     ok, msg = publier_wordpress(contenu, page_id)
     resultats["wordpress"] = (ok, msg)
+
     if ftp_est_configure():
-        statut("Upload FTP...")
+        statut("Upload FTP (fusion)...")
         ok2, msg2 = publier_ftp(html_complet)
         resultats["ftp"] = (ok2, msg2)
     else:
         resultats["ftp"] = (True, "FTP non configure — ignore")
+
     statut("Publication terminee !")
     return resultats
 
@@ -1048,9 +1176,9 @@ def workflow_creer_post(sujet, resultats_recherche, callback_statut=None):
         if callback_statut:
             callback_statut(msg)
 
-    date = datetime.now().strftime("%d/%m/%Y")
-    nb = len(resultats_recherche)
-    lignes = ""
+    date               = datetime.now().strftime("%d/%m/%Y")
+    nb                 = len(resultats_recherche)
+    lignes             = ""
     articles_pour_global = []
 
     for i, r in enumerate(resultats_recherche):
@@ -1062,9 +1190,8 @@ def workflow_creer_post(sujet, resultats_recherche, callback_statut=None):
         for pt in resume:
             html_pts += f"<li style='margin:4px 0;font-size:12px;color:#6c7086;'>{pt}</li>"
         html_pts += "</ul>"
-        # BUG FIX 14 : r['href'] et r['title'] peuvent lever KeyError → .get() défensif
-        titre_r = r.get("title", "Sans titre")
-        href_r  = r.get("href", "#")
+        titre_r = r.get("title","Sans titre")
+        href_r  = r.get("href","#")
         lignes += f"""
         <tr>
             <td style="padding:8px;text-align:center;">{langue}</td>
@@ -1074,7 +1201,7 @@ def workflow_creer_post(sujet, resultats_recherche, callback_statut=None):
         articles_pour_global.append({**r, "resume_ollama": resume})
 
     statut("Synthese globale...")
-    rg = generer_resume_global(sujet, articles_pour_global)
+    rg      = generer_resume_global(sujet, articles_pour_global)
     rg_html = _formater_resume_html(rg, articles_pour_global)
     contenu = f"""
     <h2>{sujet}</h2>

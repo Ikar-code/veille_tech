@@ -329,7 +329,8 @@ def page_auth():
                         # Activation storage sans monkey-patch
                         if STORAGE_OK:
                             try:
-                                storage.set_user(res["user"].id)
+                                import serveur as srv
+                                srv.set_storage_context(storage)
                             except Exception:
                                 pass
                         st.rerun()
@@ -867,6 +868,7 @@ user = st.session_state.get("user")
 if user and STORAGE_OK:
     try:
         storage.set_user(user.id)
+        srv.set_storage_context(storage)
     except Exception:
         pass
 

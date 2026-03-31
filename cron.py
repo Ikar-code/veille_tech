@@ -105,6 +105,7 @@ def traiter_utilisateur(user_id: str, sujets_str: str, email_dest: str):
 
     # Active le storage pour cet utilisateur
     storage.set_user(user_id)
+    srv.set_storage_context(storage)
 
     # Patch serveur pour utiliser le storage de cet utilisateur
     srv.charger_historique     = lambda: storage.charger_historique_utilisateur(user_id)
