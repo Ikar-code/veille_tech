@@ -4,6 +4,8 @@
 
 import streamlit as st
 import os
+import json
+import time
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -106,6 +108,103 @@ hr{border-color:var(--border)!important;margin:16px 0!important;}
 """, unsafe_allow_html=True)
 
 # ============================================================
+# COOKIE APPAREIL DE CONFIANCE
+# ============================================================
+_TRUST_COOKIE_KEY  = "veille_trusted_session"
+_TRUST_COOKIE_DAYS = 30
+
+def _inject_cookie_js():
+    st.markdown(f"""
+    <script>
+    (function() {{
+        function getCookie(name) {{
+            const v = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+            return v ? v.pop() : '';
+        }}
+        function setCookie(name, val) {{
+            const d = new Date();
+            d.setTime(d.getTime() + {_TRUST_COOKIE_DAYS}*24*60*60*1000);
+            document.cookie = name + '=' + val + ';expires=' + d.toUTCString() + ';path=/;SameSite=Lax';
+        }}
+        window._clearTrustCookie = function() {{
+            document.cookie = '{_TRUST_COOKIE_KEY}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;';
+        }};
+        window._saveTrustCookie = function(data) {{
+            setCookie('{_TRUST_COOKIE_KEY}', encodeURIComponent(JSON.stringify(data)));
+        }};
+        const existing = getCookie('{_TRUST_COOKIE_KEY}');
+        if (existing) {{
+            try {{
+                const data = JSON.parse(decodeURIComponent(existing));
+                const url = new URL(window.location.href);
+                if (!url.searchParams.get('trusted_email')) {{
+                    url.searchParams.set('trusted_email', data.email || '');
+                    url.searchParams.set('trusted_pwd',   data.pwd   || '');
+                    url.searchParams.set('trusted_ts',    data.ts    || '');
+                    window.history.replaceState(null, '', url.toString());
+                    window.location.reload();
+                }}
+            }} catch(e) {{}}
+        }}
+    }})();
+    </script>
+    """, unsafe_allow_html=True)
+
+def _save_trust_cookie_js(email: str, pwd: str):
+    ts   = int(time.time())
+    data = json.dumps({"email": email, "pwd": pwd, "ts": ts})
+    st.markdown(f"""
+    <script>
+    (function() {{
+        function setCookie(name, val) {{
+            const d = new Date();
+            d.setTime(d.getTime() + {_TRUST_COOKIE_DAYS}*24*60*60*1000);
+            document.cookie = name + '=' + val + ';expires=' + d.toUTCString() + ';path=/;SameSite=Lax';
+        }}
+        setCookie('{_TRUST_COOKIE_KEY}', encodeURIComponent({repr(data)}));
+    }})();
+    </script>
+    """, unsafe_allow_html=True)
+
+def _clear_trust_cookie_js():
+    st.markdown(f"""
+    <script>
+    document.cookie = '{_TRUST_COOKIE_KEY}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;';
+    </script>
+    """, unsafe_allow_html=True)
+
+def _check_trusted_login():
+    if not AUTH_OK:
+        return
+    if st.session_state.get("user"):
+        return
+    params = st.query_params
+    email  = params.get("trusted_email", "")
+    pwd    = params.get("trusted_pwd",   "")
+    ts     = params.get("trusted_ts",    "0")
+    if not email or not pwd:
+        return
+    try:
+        age = time.time() - int(ts)
+        if age > _TRUST_COOKIE_DAYS * 86400:
+            _clear_trust_cookie_js()
+            return
+    except Exception:
+        return
+    try:
+        res = auth.connecter(email, pwd)
+        if res["ok"]:
+            st.session_state["user"]    = res["user"]
+            st.session_state["session"] = res["session"]
+            st.session_state["profil"]  = auth.get_profil(res["user"].id)
+            st.session_state["page"]    = "veille"
+            _activer_storage(res["user"].id)
+            st.query_params.clear()
+            st.rerun()
+    except Exception:
+        pass
+
+# ============================================================
 # SESSION STATE
 # ============================================================
 def _init_state():
@@ -114,6 +213,13 @@ def _init_state():
         "en_cours":False,"page":"accueil",
         "user":None,"session":None,"profil":{},
         "dernier_log":"",
+        "theme_ftp": {
+            "bg":"#1e1e2e","surf":"#181825","ov":"#313244",
+            "txt":"#cdd6f4","sub":"#a6adc8","brd":"#45475a",
+            "blue":"#89b4fa","grn":"#a6e3a1","yel":"#f9e2af","red":"#f38ba8",
+            "font":"Arial,sans-serif","fs":"13","rad":"8",
+            "ptitle":"Veille Technologique IA","stitle":"Intelligence Artificielle",
+        },
     }
     for k,v in defaults.items():
         if k not in st.session_state:
@@ -166,7 +272,6 @@ def _historique():
     return srv.charger_historique()
 
 def _effacer_sujet(sujet):
-    """Supprime uniquement un sujet spécifique de l'historique."""
     h=_historique()
     if sujet in h:
         del h[sujet]
@@ -218,7 +323,6 @@ def render_sidebar():
                     '<div style="font-size:20px;font-weight:700;">2,99€'
                     '<span style="font-size:11px;font-weight:400;color:var(--subtext)">/mois</span></div>'
                     '</div>',unsafe_allow_html=True)
-
             st.markdown("---")
             st.markdown("## Navigation")
             pages={
@@ -235,7 +339,6 @@ def render_sidebar():
                              type="primary" if actif else "secondary",key=f"sb_nav_{key}"):
                     st.session_state["page"]=key
                     st.rerun()
-
             st.markdown("---")
             if st.button("🚪 Déconnexion",use_container_width=True,key="sb_logout"):
                 if AUTH_OK:
@@ -244,17 +347,16 @@ def render_sidebar():
                 if STORAGE_OK:
                     try: storage.set_user(None)
                     except Exception: pass
+                _clear_trust_cookie_js()
                 st.session_state.update({
                     "user":None,"session":None,"profil":{},
                     "page":"accueil","dernier_log":""
                 })
                 st.rerun()
         else:
-            # Non connecté — juste le bouton de connexion
             st.markdown(
                 '<div style="font-size:12px;color:var(--subtext);text-align:center;margin-bottom:12px;">'
-                'Connectez-vous pour accéder à la plateforme</div>',
-                unsafe_allow_html=True)
+                'Connectez-vous pour accéder à la plateforme</div>',unsafe_allow_html=True)
             if st.button("🔑 Se connecter / S'inscrire",use_container_width=True,
                          type="primary",key="sb_login"):
                 st.session_state["page"]="accueil"
@@ -265,7 +367,7 @@ def render_sidebar():
                 'Veille auto · Groq · DuckDuckGo</p>',unsafe_allow_html=True)
 
 # ============================================================
-# PAGE ACCUEIL / AUTH (non connecté)
+# PAGE ACCUEIL / AUTH
 # ============================================================
 def page_accueil():
     if not AUTH_OK:
@@ -289,7 +391,15 @@ def page_accueil():
             email=st.text_input("Email",key="login_email",placeholder="votre@email.com")
             pwd  =st.text_input("Mot de passe",type="password",key="login_pwd")
 
-            if st.button("Se connecter",use_container_width=True,type="primary",key="btn_login"):
+            col_btn,col_trust=st.columns([1,1])
+            with col_btn:
+                btn_login=st.button("Se connecter",use_container_width=True,type="primary",key="btn_login")
+            with col_trust:
+                faire_confiance=st.checkbox(
+                    "Faire confiance à cet appareil",value=False,key="cb_trust",
+                    help=f"Rester connecté pendant {_TRUST_COOKIE_DAYS} jours sur cet appareil")
+
+            if btn_login:
                 if not email or not pwd:
                     st.error("Remplissez tous les champs.")
                 else:
@@ -301,6 +411,9 @@ def page_accueil():
                         st.session_state["profil"] =auth.get_profil(res["user"].id)
                         st.session_state["page"]   ="veille"
                         _activer_storage(res["user"].id)
+                        if faire_confiance:
+                            _save_trust_cookie_js(email,pwd)
+                            st.toast("✅ Cet appareil est de confiance pendant 30 jours",icon="🔒")
                         st.rerun()
                     else:
                         st.error(res["message"])
@@ -309,7 +422,8 @@ def page_accueil():
             if st.button("Mot de passe oublié ?",use_container_width=True,key="btn_reset"):
                 if email:
                     res=auth.reinitialiser_mot_de_passe(email)
-                    st.success(res["message"]) if res["ok"] else st.error(res["message"])
+                    if res["ok"]: st.success(res["message"])
+                    else: st.error(res["message"])
                 else:
                     st.warning("Entrez votre email d'abord.")
 
@@ -333,14 +447,10 @@ def page_accueil():
             pwd2  =st.text_input("Mot de passe",type="password",key="reg_pwd",help="Minimum 6 caractères")
             pwd2b =st.text_input("Confirmer",type="password",key="reg_pwd2")
             st.markdown('<div style="font-size:11px;color:var(--subtext);margin:8px 0;">En créant un compte vous acceptez nos CGU.</div>',unsafe_allow_html=True)
-
             if st.button("Créer mon compte",use_container_width=True,type="primary",key="btn_register"):
-                if not email2 or not pwd2:
-                    st.error("Remplissez tous les champs.")
-                elif pwd2!=pwd2b:
-                    st.error("Les mots de passe ne correspondent pas.")
-                elif len(pwd2)<6:
-                    st.error("Minimum 6 caractères.")
+                if not email2 or not pwd2: st.error("Remplissez tous les champs.")
+                elif pwd2!=pwd2b: st.error("Les mots de passe ne correspondent pas.")
+                elif len(pwd2)<6: st.error("Minimum 6 caractères.")
                 else:
                     with st.spinner("Création…"):
                         res=auth.inscrire(email2,pwd2)
@@ -349,6 +459,114 @@ def page_accueil():
                         st.info("Vérifiez votre email puis connectez-vous.")
                     else:
                         st.error(res["message"])
+
+# ============================================================
+# ÉDITEUR DE THÈME FTP
+# ============================================================
+def _render_theme_editor():
+    th=st.session_state["theme_ftp"]
+
+    st.markdown("---")
+    st.markdown(
+        '<div style="font-family:Space Mono;font-size:13px;color:var(--blue);">'
+        '🎨 Personnaliser le thème de veille-ia.html</div>',unsafe_allow_html=True)
+    st.markdown(
+        '<div style="font-size:12px;color:var(--subtext);margin:6px 0 16px 0;">'
+        'Modifiez l\'apparence de la page publiée sur votre hébergement FTP.</div>',unsafe_allow_html=True)
+
+    PRESETS={
+        "🌙 Catppuccin":{"bg":"#1e1e2e","surf":"#181825","ov":"#313244","txt":"#cdd6f4","sub":"#a6adc8","brd":"#45475a","blue":"#89b4fa","grn":"#a6e3a1","yel":"#f9e2af","red":"#f38ba8"},
+        "☀️ Light":     {"bg":"#f8f9fa","surf":"#ffffff","ov":"#e9ecef","txt":"#212529","sub":"#6c757d","brd":"#dee2e6","blue":"#0d6efd","grn":"#198754","yel":"#e67e00","red":"#dc3545"},
+        "❄️ Nord":      {"bg":"#2e3440","surf":"#3b4252","ov":"#434c5e","txt":"#eceff4","sub":"#d8dee9","brd":"#4c566a","blue":"#88c0d0","grn":"#a3be8c","yel":"#ebcb8b","red":"#bf616a"},
+        "🧛 Dracula":   {"bg":"#282a36","surf":"#1e1f29","ov":"#44475a","txt":"#f8f8f2","sub":"#6272a4","brd":"#44475a","blue":"#8be9fd","grn":"#50fa7b","yel":"#f1fa8c","red":"#ff5555"},
+    }
+
+    cols_preset=st.columns(len(PRESETS))
+    for i,(label,vals) in enumerate(PRESETS.items()):
+        with cols_preset[i]:
+            if st.button(label,use_container_width=True,key=f"preset_{i}"):
+                for k,v in vals.items():
+                    st.session_state["theme_ftp"][k]=v
+                st.rerun()
+
+    st.markdown("<div style='height:8px'></div>",unsafe_allow_html=True)
+
+    col_left,col_right=st.columns(2)
+
+    with col_left:
+        st.markdown("**Couleurs**")
+        sub_cols=st.columns(2)
+        color_fields=[
+            ("bg","Fond page"),("surf","Fond carte"),("ov","Fond hover"),("txt","Texte"),
+            ("sub","Sous-texte"),("brd","Bordure"),("blue","Bleu (liens)"),("grn","Vert"),
+            ("yel","Jaune (synthèse)"),("red","Rouge"),
+        ]
+        for i,(key,label) in enumerate(color_fields):
+            with sub_cols[i%2]:
+                val=st.color_picker(label,value=th.get(key,"#ffffff"),key=f"th_{key}")
+                st.session_state["theme_ftp"][key]=val
+
+    with col_right:
+        st.markdown("**Typographie & Mise en page**")
+        font_opts=["Arial,sans-serif","'Segoe UI',sans-serif","Georgia,serif","'Courier New',monospace","'Inter',sans-serif"]
+        cur_font=th.get("font","Arial,sans-serif")
+        font_idx=font_opts.index(cur_font) if cur_font in font_opts else 0
+        font=st.selectbox("Police",font_opts,index=font_idx,key="th_font")
+        st.session_state["theme_ftp"]["font"]=font
+
+        fs=st.slider("Taille du texte (px)",11,16,int(th.get("fs",13)),key="th_fs")
+        st.session_state["theme_ftp"]["fs"]=str(fs)
+
+        rad=st.slider("Rayon des cartes (px)",0,20,int(th.get("rad",8)),key="th_rad")
+        st.session_state["theme_ftp"]["rad"]=str(rad)
+
+        st.markdown("**Textes**")
+        ptitle=st.text_input("Titre de la page",value=th.get("ptitle","Veille Technologique IA"),key="th_ptitle")
+        st.session_state["theme_ftp"]["ptitle"]=ptitle
+
+    # Aperçu
+    t=st.session_state["theme_ftp"]
+    st.markdown(
+        f'<div style="margin-top:12px;padding:16px;background:{t["bg"]};border-radius:{t["rad"]}px;'
+        f'border:1px solid {t["brd"]};font-family:{t["font"]};">'
+        f'<div style="font-size:18px;font-weight:bold;color:{t["blue"]};margin-bottom:10px;">{ptitle}</div>'
+        f'<div style="font-size:12px;color:{t["sub"]};margin-bottom:12px;">Aperçu du thème — {datetime.now().strftime("%d/%m/%Y")}</div>'
+        f'<div style="background:{t["ov"]};border-radius:{t["rad"]}px;padding:10px 14px;margin-bottom:8px;">'
+        f'<div style="font-size:13px;font-weight:600;color:{t["blue"]};">Article exemple</div>'
+        f'<div style="font-size:12px;color:{t["sub"]};margin-top:4px;">Les LLM open-source rivalisent avec GPT-4 sur les benchmarks</div>'
+        f'</div>'
+        f'<div style="padding:12px;background:linear-gradient(135deg,{t["bg"]},{t["surf"]});'
+        f'border-left:4px solid {t["yel"]};border-radius:{t["rad"]}px;">'
+        f'<div style="font-size:12px;font-weight:bold;color:{t["yel"]};margin-bottom:6px;">— Synthèse</div>'
+        f'<div style="font-size:11px;color:{t["txt"]};border-left:2px solid {t["brd"]};padding-left:8px;">'
+        f'La convergence des modèles open-source s\'accélère [1]</div>'
+        f'</div></div>',
+        unsafe_allow_html=True
+    )
+
+    col_apply,col_save=st.columns(2)
+    with col_apply:
+        if st.button("🎨 Appliquer & republier sur FTP",type="primary",use_container_width=True,key="btn_apply_theme"):
+            if srv.ftp_est_configure():
+                with st.spinner("Regénération et upload FTP…"):
+                    try:
+                        h=_historique()
+                        date=datetime.now().strftime("%d/%m/%Y")
+                        contenu=srv.generer_contenu_html(h,date)
+                        html_complet=srv.generer_html_complet_theme(contenu,date,st.session_state["theme_ftp"])
+                        ok,msg=srv._publier_ftp_avec_historique(html_complet,h)
+                        if ok: st.success(f"✅ {msg}")
+                        else:  st.error(msg)
+                    except Exception as e:
+                        st.error(f"Erreur : {e}")
+            else:
+                st.warning("FTP non configuré — allez dans Configuration.")
+    with col_save:
+        if st.button("💾 Sauvegarder le thème",use_container_width=True,key="btn_save_theme"):
+            cfg=_cfg()
+            cfg["theme_ftp"]=json.dumps(st.session_state["theme_ftp"])
+            _save_cfg(cfg)
+            st.success("Thème sauvegardé !")
 
 # ============================================================
 # PAGE AUTOMATISATION
@@ -402,19 +620,14 @@ def page_auto():
         except Exception: pass
     st.markdown("<div style='height:12px'></div>",unsafe_allow_html=True)
     if st.button("💾 Enregistrer",type="primary"):
-        if not sujets.strip():
-            st.error("Entrez au moins un sujet.")
-        elif not STORAGE_OK:
-            st.error("Module storage indisponible.")
+        if not sujets.strip(): st.error("Entrez au moins un sujet.")
+        elif not STORAGE_OK:   st.error("Module storage indisponible.")
         else:
             try:
                 ok=storage.sauvegarder_veille_auto(sujets.strip(),int(heure_utc),int(minute_utc),actif,uid)
-                if ok:
-                    st.success(f"Veille {'activée' if actif else 'désactivée'} — envoi à {h_reunion:02d}h{minute_utc:02d} (Réunion)")
-                else:
-                    st.error("Erreur Supabase.")
-            except Exception as e:
-                st.error(f"Erreur : {e}")
+                if ok: st.success(f"Veille {'activée' if actif else 'désactivée'} — envoi à {h_reunion:02d}h{minute_utc:02d} (Réunion)")
+                else:  st.error("Erreur Supabase.")
+            except Exception as e: st.error(f"Erreur : {e}")
     st.markdown("---")
     st.markdown(
         '<div class="card" style="padding:16px;">'
@@ -583,8 +796,12 @@ def page_veille():
     elif lancer and not sujet.strip():
         st.warning("Entrez au moins un sujet.")
 
+    # ── Éditeur de thème FTP en bas de page ───────────────
+    if not st.session_state["en_cours"]:
+        _render_theme_editor()
+
 # ============================================================
-# PAGE HISTORIQUE — suppression sélective
+# PAGE HISTORIQUE
 # ============================================================
 def page_historique():
     st.markdown("# 📚 Historique des veilles")
@@ -594,7 +811,6 @@ def page_historique():
     if not sujets:
         st.info("Aucun historique. Lancez une première veille.")
         return
-
     col_g,col_d=st.columns([1,2],gap="large")
     with col_g:
         sujet_sel=st.selectbox("Sujet à afficher",sujets,key="hist_sujet_sel")
@@ -603,44 +819,24 @@ def page_historique():
             f'<div class="metric-box" style="margin:12px 0;">'
             f'<span class="metric-val">{len(sessions)}</span>'
             f'<span class="metric-lbl">Sessions</span></div>',unsafe_allow_html=True)
-
         st.markdown("---")
         st.markdown("#### Supprimer des sujets")
-
-        # Multiselect pour choisir quels sujets supprimer
         sujets_a_supprimer=st.multiselect(
-            "Sélectionnez les sujets à supprimer",
-            options=sujets,
-            default=[],
-            key="sujets_suppr",
-            placeholder="Choisissez un ou plusieurs sujets…"
-        )
-
+            "Sélectionnez les sujets à supprimer",options=sujets,default=[],
+            key="sujets_suppr",placeholder="Choisissez un ou plusieurs sujets…")
         if sujets_a_supprimer:
-            st.markdown(
-                f'<div style="font-size:12px;color:var(--red);margin:6px 0;">'
-                f'⚠️ {len(sujets_a_supprimer)} sujet(s) sélectionné(s) pour suppression</div>',
-                unsafe_allow_html=True)
-            if st.button(f"🗑 Supprimer {len(sujets_a_supprimer)} sujet(s)",
-                         type="secondary",use_container_width=True,key="btn_suppr_sel"):
+            st.markdown(f'<div style="font-size:12px;color:var(--red);margin:6px 0;">⚠️ {len(sujets_a_supprimer)} sujet(s) sélectionné(s)</div>',unsafe_allow_html=True)
+            if st.button(f"🗑 Supprimer {len(sujets_a_supprimer)} sujet(s)",type="secondary",use_container_width=True,key="btn_suppr_sel"):
                 for s in sujets_a_supprimer:
                     _effacer_sujet(s)
                 st.success(f"{len(sujets_a_supprimer)} sujet(s) supprimé(s).")
                 st.rerun()
-        else:
-            st.markdown(
-                '<div style="font-size:12px;color:var(--subtext);margin-top:6px;">'
-                'Sélectionnez des sujets ci-dessus pour les supprimer.</div>',
-                unsafe_allow_html=True)
-
         st.markdown("---")
         with st.expander("⚠️ Tout effacer"):
-            st.markdown('<div style="font-size:12px;color:var(--red);">Cette action supprime tout l\'historique sans retour possible.</div>',unsafe_allow_html=True)
-            if st.button("🗑 Effacer tout l'historique",type="secondary",use_container_width=True,key="btn_eff_tout"):
+            if st.button("🗑 Effacer tout",type="secondary",use_container_width=True,key="btn_eff_tout"):
                 _effacer_tout()
                 st.success("Historique effacé.")
                 st.rerun()
-
     with col_d:
         for i,session in enumerate(sessions):
             if not isinstance(session,dict): continue
@@ -653,8 +849,7 @@ def page_historique():
                     st.markdown(
                         f'<div class="card" style="border-left:3px solid var(--yellow);margin-bottom:16px;">'
                         f'<div style="font-size:12px;font-weight:600;color:var(--yellow);margin-bottom:8px;">SYNTHÈSE</div>'
-                        f'<div style="font-size:13px;line-height:1.7;">{rg_affiche}</div></div>',
-                        unsafe_allow_html=True)
+                        f'<div style="font-size:13px;line-height:1.7;">{rg_affiche}</div></div>',unsafe_allow_html=True)
                 for a in sorted(articles,key=lambda x:x.get("score",0),reverse=True):
                     dom   =urlparse(a.get("href","")).netloc
                     score =a.get("score",0)
@@ -715,10 +910,8 @@ def page_comparaison():
                 st.markdown(
                     f'<div class="card card-accent" style="margin-top:16px;">'
                     f'<div style="font-size:12px;font-weight:600;color:var(--mauve);margin-bottom:12px;">ANALYSE COMPARATIVE</div>'
-                    f'<div style="font-size:13px;line-height:1.8;white-space:pre-line">{analyse}</div></div>',
-                    unsafe_allow_html=True)
-            except Exception as e:
-                st.error(f"Erreur : {e}")
+                    f'<div style="font-size:13px;line-height:1.8;white-space:pre-line">{analyse}</div></div>',unsafe_allow_html=True)
+            except Exception as e: st.error(f"Erreur : {e}")
 
 # ============================================================
 # PAGE CONFIG
@@ -743,7 +936,8 @@ def page_config():
         with ct:
             if st.button("🔌 Tester WP",use_container_width=True):
                 ok,msg=srv.tester_connexion_wp(wp_base,wp_user,wp_pwd)
-                st.success(msg) if ok else st.error(msg)
+                if ok: st.success(msg)
+                else:  st.error(msg)
     with tab_ftp:
         st.markdown("#### Connexion FTP")
         ftp_host=st.text_input("Hôte FTP",value=cfg.get("ftp_host",""))
@@ -760,7 +954,16 @@ def page_config():
         with ct:
             if st.button("🔌 Tester FTP",use_container_width=True):
                 ok,msg=srv.tester_connexion_ftp(ftp_host,ftp_user,ftp_pwd)
-                st.success(msg) if ok else st.error(msg)
+                if ok: st.success(msg)
+                else:  st.error(msg)
+
+    st.markdown("---")
+    st.markdown("#### 🔒 Appareil de confiance")
+    st.markdown('<div style="font-size:12px;color:var(--subtext);margin-bottom:12px;">Cet appareil est mémorisé pendant 30 jours. Vous pouvez révoquer la confiance ici.</div>',unsafe_allow_html=True)
+    if st.button("🚫 Révoquer cet appareil",use_container_width=False):
+        _clear_trust_cookie_js()
+        st.success("Cookie de confiance supprimé.")
+
     st.markdown("---")
     c1,c2=st.columns(2)
     with c1:
@@ -775,21 +978,29 @@ def page_config():
 # ============================================================
 # ROUTING PRINCIPAL
 # ============================================================
+_inject_cookie_js()
+_check_trusted_login()
+
 user=st.session_state.get("user")
 
-# Réactive le storage à chaque rerun si connecté
-if user and STORAGE_OK:
+if user:
     _activer_storage(user.id)
+    # Charge le thème sauvegardé
+    try:
+        cfg_saved=_cfg()
+        if "theme_ftp" in cfg_saved and isinstance(cfg_saved["theme_ftp"],str):
+            saved=json.loads(cfg_saved["theme_ftp"])
+            st.session_state["theme_ftp"].update(saved)
+    except Exception:
+        pass
 
 render_sidebar()
 
 page=st.session_state["page"]
 
-# Non connecté → uniquement la page d'accueil/connexion
 if not user:
     page_accueil()
 else:
-    # Connecté → toutes les pages disponibles
     if   page=="veille":      page_veille()
     elif page=="historique":  page_historique()
     elif page=="comparaison": page_comparaison()

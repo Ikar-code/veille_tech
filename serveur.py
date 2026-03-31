@@ -54,36 +54,26 @@ def set_storage_context(ctx):
 
 def _charger_config_ctx():
     if _storage_context:
-        try:
-            return _storage_context.charger_config()
-        except Exception:
-            pass
+        try: return _storage_context.charger_config()
+        except Exception: pass
     return charger_config_local()
 
 def _sauvegarder_config_ctx(cfg):
     if _storage_context:
-        try:
-            _storage_context.sauvegarder_config(cfg)
-            return
-        except Exception:
-            pass
+        try: _storage_context.sauvegarder_config(cfg); return
+        except Exception: pass
     sauvegarder_config_local(cfg)
 
 def _charger_historique_ctx():
     if _storage_context:
-        try:
-            return _storage_context.charger_historique()
-        except Exception:
-            pass
+        try: return _storage_context.charger_historique()
+        except Exception: pass
     return charger_historique_local()
 
 def _sauvegarder_historique_ctx(h):
     if _storage_context:
-        try:
-            _storage_context.sauvegarder_historique(h)
-            return
-        except Exception:
-            pass
+        try: _storage_context.sauvegarder_historique(h); return
+        except Exception: pass
     sauvegarder_historique_local(h)
 
 # ============================================================
@@ -146,7 +136,7 @@ FLUX_RSS_IA = [
 ]
 
 # ============================================================
-# CONFIG — fonctions publiques
+# CONFIG
 # ============================================================
 
 def charger_config_local():
@@ -177,18 +167,13 @@ def tester_connexion_wp(url, user, pwd):
         import base64 as b64
         token = b64.b64encode(f"{user}:{pwd}".encode()).decode()
         r = requests.get(f"{base}/users/me",
-                         headers={"Authorization": f"Basic {token}"},
-                         timeout=8)
+                         headers={"Authorization": f"Basic {token}"}, timeout=8)
         if r.status_code == 200:
             return True, f"Connexion reussie ! Connecte : {r.json().get('name', user)}"
-        elif r.status_code == 401:
-            return False, "Identifiants incorrects."
-        elif r.status_code == 403:
-            return False, "Acces refuse."
-        elif r.status_code == 404:
-            return False, "URL introuvable."
-        else:
-            return False, f"Erreur {r.status_code}."
+        elif r.status_code == 401: return False, "Identifiants incorrects."
+        elif r.status_code == 403: return False, "Acces refuse."
+        elif r.status_code == 404: return False, "URL introuvable."
+        else: return False, f"Erreur {r.status_code}."
     except requests.exceptions.ConnectionError:
         est_local = any(x in url.lower() for x in ["localhost", ".local", "127.0.0.1"])
         return False, "Site local inaccessible." if est_local else "Site distant inaccessible."
@@ -600,7 +585,7 @@ Phrases directes. N'invente rien."""}
         return f"Erreur résumé global : {e}"
 
 # ============================================================
-# HISTORIQUE — fonctions locales + alias publics
+# HISTORIQUE
 # ============================================================
 
 def charger_historique_local():
@@ -859,6 +844,7 @@ def generer_contenu_html(historique, date):
     return contenu
 
 def generer_html_complet(contenu_body, date):
+    """Génère le HTML avec le thème par défaut (Catppuccin sombre)."""
     ts = datetime.now().strftime("%Y%m%d%H%M%S")
     return f"""<!DOCTYPE html>
 <html lang="fr">
@@ -888,6 +874,72 @@ p{{color:gray;font-size:13px;}}
 </body>
 </html>"""
 
+
+def generer_html_complet_theme(contenu_body: str, date: str, theme: dict) -> str:
+    """
+    Génère le HTML avec un thème personnalisé passé depuis l'éditeur de thème.
+    theme = {"bg","surf","ov","txt","sub","brd","blue","grn","yel","red",
+             "font","fs","rad","ptitle"}
+    """
+    bg     = theme.get("bg",     "#1e1e2e")
+    surf   = theme.get("surf",   "#181825")
+    ov     = theme.get("ov",     "#313244")
+    txt    = theme.get("txt",    "#cdd6f4")
+    sub    = theme.get("sub",    "#a6adc8")
+    brd    = theme.get("brd",    "#45475a")
+    blue   = theme.get("blue",   "#89b4fa")
+    grn    = theme.get("grn",    "#a6e3a1")
+    yel    = theme.get("yel",    "#f9e2af")
+    red    = theme.get("red",    "#f38ba8")
+    font   = theme.get("font",   "Arial,sans-serif")
+    fs     = theme.get("fs",     "13")
+    rad    = theme.get("rad",    "8")
+    ptitle = theme.get("ptitle", "Veille Technologique IA")
+
+    ts = datetime.now().strftime("%Y%m%d%H%M%S")
+    return f"""<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<!-- ts:{ts} -->
+<meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>{ptitle}</title>
+<style>
+body{{font-family:{font};background:{bg};color:{txt};margin:0;padding:20px;font-size:{fs}px;}}
+h2{{color:{blue};}}
+hr{{border-color:{brd};}}
+table{{border-collapse:collapse;width:100%;margin-top:6px;}}
+th{{background:{ov};color:{txt};padding:10px;text-align:left;}}
+td{{padding:8px;border:1px solid {brd};vertical-align:top;}}
+a{{color:{blue};}}
+ul{{margin:6px 0 0 0;padding-left:18px;}}
+li{{margin:4px 0;font-size:{fs}px;color:{sub};line-height:1.6;}}
+p{{color:{sub};font-size:{fs}px;}}
+button{{cursor:pointer;background:{ov};color:{txt};border:1px solid {brd};
+        border-radius:{rad}px;padding:10px 18px;font-size:14px;font-weight:bold;
+        width:100%;text-align:left;}}
+/* Badges langue */
+.lang-badge{{background:rgba(137,180,250,.15);color:{blue};border:1px solid {blue};
+             padding:2px 8px;border-radius:12px;font-size:10px;}}
+/* Bloc synthèse */
+.synth-box{{margin-top:18px;padding:18px;
+            background:linear-gradient(135deg,{bg},{surf});
+            border-left:4px solid {yel};border-radius:{rad}px;}}
+.synth-title{{font-size:14px;font-weight:bold;color:{yel};margin-bottom:14px;}}
+.synth-body{{font-size:{fs}px;color:{txt};}}
+/* Score badge */
+.score-badge{{padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;}}
+</style>
+</head>
+<body>
+{contenu_body}
+<p style="margin-top:30px;text-align:center;font-size:11px;color:{brd};">Mis à jour le {date} — Veille technologique automatisée</p>
+</body>
+</html>"""
+
 # ============================================================
 # PUBLICATION WORDPRESS
 # ============================================================
@@ -910,24 +962,13 @@ def publier_wordpress(contenu, page_id):
         return False, f"Erreur WP : {e}"
 
 # ============================================================
-# PUBLICATION FTP — FUSION PROPRE
-#
-# Principe : le fichier HTML sur le FTP embarque un bloc JSON
-# caché (commentaire HTML) contenant tout l'historique des
-# sujets déjà publiés. À chaque publication :
-#   1. On lit le fichier existant et on extrait ce JSON
-#   2. On fusionne avec le nouvel historique (upsert par sujet)
-#   3. On regénère le HTML complet depuis la fusion
-#   4. On réécrit le fichier avec le JSON mis à jour
-#
-# Aucune regex fragile sur le HTML — données propres en JSON.
+# PUBLICATION FTP — FUSION JSON EMBARQUÉE
 # ============================================================
 
 _FTP_DATA_MARKER = "<!--VEILLE_DATA:"
 _FTP_DATA_END    = ":END_VEILLE_DATA-->"
 
 def _lire_donnees_ftp(ftp, chemin) -> dict:
-    """Lit et parse le JSON embarqué dans le fichier FTP existant."""
     try:
         buf = io.BytesIO()
         ftp.retrbinary(f"RETR {chemin}", buf.write)
@@ -942,103 +983,28 @@ def _lire_donnees_ftp(ftp, chemin) -> dict:
     return {}
 
 def _fusionner_historiques(existant: dict, nouveau: dict) -> dict:
-    """
-    Fusionne deux historiques :
-    - Les sujets du nouveau remplacent/complètent ceux de l'existant
-    - Les sujets absents du nouveau sont conservés intacts
-    - Pour chaque sujet, les sessions sont fusionnées par date (upsert)
-    """
     fusion = {}
-
-    # Copie tous les sujets existants
     for sujet, sessions in existant.items():
         fusion[sujet] = list(sessions) if isinstance(sessions, list) else sessions
-
-    # Applique le nouveau par-dessus
     for sujet, sessions_new in nouveau.items():
         if sujet.startswith("__") or not isinstance(sessions_new, list):
             continue
         if sujet not in fusion:
             fusion[sujet] = []
-
-        # Index des sessions existantes par date
         index_date = {s.get("date"): i for i, s in enumerate(fusion[sujet]) if isinstance(s, dict)}
-
         for session in sessions_new:
             if not isinstance(session, dict):
                 continue
             date_s = session.get("date", "")
             if date_s in index_date:
-                # Met à jour la session existante (articles + résumé)
                 idx = index_date[date_s]
                 fusion[sujet][idx]["articles"]      = session.get("articles", [])
                 fusion[sujet][idx]["resume_global"] = session.get("resume_global", "")
             else:
-                # Nouvelle session — insère en tête
                 fusion[sujet].insert(0, session)
-
     return fusion
 
-def publier_ftp(contenu_html_nouveau):
-    """
-    Publie sur FTP en fusionnant avec l'historique existant.
-    Ne supprime jamais les anciens sujets ni les anciennes sessions.
-    """
-    ftp_cfg = _ftp_config()
-    try:
-        ftp = ftplib.FTP()
-        ftp.connect(ftp_cfg["host"], 21, timeout=30)
-        ftp.login(ftp_cfg["user"], ftp_cfg["password"])
-
-        # Détermine le chemin cible
-        racine  = ftp.nlst()
-        dossier = "/htdocs"
-        if "htdocs" not in racine:
-            for d in racine:
-                if any(x in d.lower() for x in ["htdocs", "www", "public"]):
-                    dossier = f"/{d}"
-                    break
-        chemin = ftp_cfg["path"] if ftp_cfg["path"] else f"{dossier}/veille-ia.html"
-
-        # 1. Lit l'historique embarqué dans le fichier existant
-        historique_existant = _lire_donnees_ftp(ftp, chemin)
-
-        # 2. Extrait l'historique du nouveau HTML (depuis son JSON embarqué)
-        #    Si pas encore embarqué (premier envoi), on parse le HTML
-        historique_nouveau  = _extraire_historique_depuis_html(contenu_html_nouveau)
-
-        # 3. Fusion
-        historique_fusionne = _fusionner_historiques(historique_existant, historique_nouveau)
-
-        # 4. Regénère le HTML complet depuis la fusion
-        date_maj    = datetime.now().strftime("%d/%m/%Y")
-        contenu     = generer_contenu_html(historique_fusionne, date_maj)
-        html_final  = generer_html_complet(contenu, date_maj)
-
-        # 5. Embarque le JSON dans un commentaire caché
-        json_data   = json.dumps(historique_fusionne, ensure_ascii=False)
-        html_final  = html_final.replace(
-            "</body>",
-            f"\n{_FTP_DATA_MARKER}{json_data}{_FTP_DATA_END}\n</body>"
-        )
-
-        # 6. Envoie le fichier final
-        ftp.storbinary(f"STOR {chemin}", io.BytesIO(html_final.encode("utf-8")))
-        ftp.quit()
-
-        nb_sujets  = len([k for k in historique_fusionne if not k.startswith("__")])
-        nb_sessions = sum(len(v) for v in historique_fusionne.values() if isinstance(v, list))
-        return True, f"FTP OK → {chemin} ({nb_sujets} sujets, {nb_sessions} sessions conservées)"
-
-    except Exception as e:
-        return False, f"Erreur FTP : {e}"
-
 def _extraire_historique_depuis_html(html: str) -> dict:
-    """
-    Tente d'extraire le JSON embarqué d'un HTML déjà traité.
-    Si absent (premier envoi), retourne dict vide — le workflow_publier
-    passe directement l'historique via charger_historique().
-    """
     try:
         debut = html.find(_FTP_DATA_MARKER)
         fin   = html.find(_FTP_DATA_END)
@@ -1048,6 +1014,74 @@ def _extraire_historique_depuis_html(html: str) -> dict:
     except Exception:
         pass
     return {}
+
+def publier_ftp(contenu_html_nouveau):
+    """Publie sur FTP en fusionnant avec l'historique existant."""
+    ftp_cfg = _ftp_config()
+    try:
+        ftp = ftplib.FTP()
+        ftp.connect(ftp_cfg["host"], 21, timeout=30)
+        ftp.login(ftp_cfg["user"], ftp_cfg["password"])
+        racine  = ftp.nlst()
+        dossier = "/htdocs"
+        if "htdocs" not in racine:
+            for d in racine:
+                if any(x in d.lower() for x in ["htdocs", "www", "public"]):
+                    dossier = f"/{d}"
+                    break
+        chemin = ftp_cfg["path"] if ftp_cfg["path"] else f"{dossier}/veille-ia.html"
+        historique_existant = _lire_donnees_ftp(ftp, chemin)
+        historique_nouveau  = _extraire_historique_depuis_html(contenu_html_nouveau)
+        historique_fusionne = _fusionner_historiques(historique_existant, historique_nouveau)
+        date_maj    = datetime.now().strftime("%d/%m/%Y")
+        contenu     = generer_contenu_html(historique_fusionne, date_maj)
+        html_final  = generer_html_complet(contenu, date_maj)
+        json_data   = json.dumps(historique_fusionne, ensure_ascii=False)
+        html_final  = html_final.replace("</body>", f"\n{_FTP_DATA_MARKER}{json_data}{_FTP_DATA_END}\n</body>")
+        ftp.storbinary(f"STOR {chemin}", io.BytesIO(html_final.encode("utf-8")))
+        ftp.quit()
+        nb_sujets   = len([k for k in historique_fusionne if not k.startswith("__")])
+        nb_sessions = sum(len(v) for v in historique_fusionne.values() if isinstance(v, list))
+        return True, f"FTP OK → {chemin} ({nb_sujets} sujets, {nb_sessions} sessions conservées)"
+    except Exception as e:
+        return False, f"Erreur FTP : {e}"
+
+def _publier_ftp_avec_historique(contenu_html, historique_actuel, theme: dict = None):
+    """
+    Version interne appelée depuis workflow_publier et l'éditeur de thème.
+    Si theme est fourni, utilise generer_html_complet_theme au lieu du thème par défaut.
+    """
+    ftp_cfg = _ftp_config()
+    try:
+        ftp = ftplib.FTP()
+        ftp.connect(ftp_cfg["host"], 21, timeout=30)
+        ftp.login(ftp_cfg["user"], ftp_cfg["password"])
+        racine  = ftp.nlst()
+        dossier = "/htdocs"
+        if "htdocs" not in racine:
+            for d in racine:
+                if any(x in d.lower() for x in ["htdocs", "www", "public"]):
+                    dossier = f"/{d}"
+                    break
+        chemin = ftp_cfg["path"] if ftp_cfg["path"] else f"{dossier}/veille-ia.html"
+        historique_existant = _lire_donnees_ftp(ftp, chemin)
+        historique_fusionne = _fusionner_historiques(historique_existant, historique_actuel)
+        date_maj   = datetime.now().strftime("%d/%m/%Y")
+        contenu    = generer_contenu_html(historique_fusionne, date_maj)
+        # Utilise le thème personnalisé si fourni, sinon thème par défaut
+        if theme:
+            html_final = generer_html_complet_theme(contenu, date_maj, theme)
+        else:
+            html_final = generer_html_complet(contenu, date_maj)
+        json_data  = json.dumps(historique_fusionne, ensure_ascii=False)
+        html_final = html_final.replace("</body>", f"\n{_FTP_DATA_MARKER}{json_data}{_FTP_DATA_END}\n</body>")
+        ftp.storbinary(f"STOR {chemin}", io.BytesIO(html_final.encode("utf-8")))
+        ftp.quit()
+        nb_sujets   = len([k for k in historique_fusionne if not k.startswith("__")])
+        nb_sessions = sum(len(v) for v in historique_fusionne.values() if isinstance(v, list))
+        return True, f"FTP OK → {chemin} ({nb_sujets} sujets, {nb_sessions} sessions)"
+    except Exception as e:
+        return False, f"Erreur FTP : {e}"
 
 def creer_post_wordpress(contenu, sujet, date):
     base = _wp_base()
@@ -1129,37 +1163,27 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None, limite=12
         html_complet = generer_html_complet(contenu, date)
     else:
         nouveaux_articles = detecter_doublons_contenu(nouveaux_articles, sessions)
-
         resume_precedent = ""
         for s in sessions:
             rg = s.get("resume_global", "")
             if rg and not rg.startswith("Erreur") and not rg.startswith("Aucun"):
                 resume_precedent = rg
                 break
-
         statut("Synthese globale...")
         time.sleep(10)
         resume_global = generer_resume_global(sujet, nouveaux_articles)
-
         if resume_precedent and not resume_global.startswith("Erreur"):
             if SequenceMatcher(None, normaliser(resume_global), normaliser(resume_precedent)).ratio() > 0.85:
                 statut("Synthese similaire — conservee.")
                 resume_global = resume_precedent
-
         session_du_jour = next((s for s in sessions if s.get("date") == date), None)
         if session_du_jour:
             session_du_jour["articles"].extend(nouveaux_articles)
             session_du_jour["resume_global"] = resume_global
         else:
-            sessions.insert(0, {
-                "date":          date,
-                "articles":      nouveaux_articles,
-                "resume_global": resume_global,
-            })
-
+            sessions.insert(0, {"date": date, "articles": nouveaux_articles, "resume_global": resume_global})
         historique[sujet] = sessions
         _sauvegarder_historique_ctx(historique)
-
         statut("Generation HTML...")
         contenu      = generer_contenu_html(historique, date)
         html_complet = generer_html_complet(contenu, date)
@@ -1169,65 +1193,14 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None, limite=12
     statut("Publication WordPress...")
     ok, msg = publier_wordpress(contenu, page_id)
     resultats["wordpress"] = (ok, msg)
-
     if ftp_est_configure():
         statut("Upload FTP (fusion)...")
-        # Passe l'historique complet au FTP pour la fusion
         ok2, msg2 = _publier_ftp_avec_historique(html_complet, historique)
         resultats["ftp"] = (ok2, msg2)
     else:
         resultats["ftp"] = (True, "FTP non configure — ignore")
-
     statut("Publication terminee !")
     return resultats
-
-def _publier_ftp_avec_historique(contenu_html, historique_actuel):
-    """
-    Version interne de publier_ftp appelée depuis workflow_publier.
-    Reçoit directement l'historique courant pour la fusion.
-    """
-    ftp_cfg = _ftp_config()
-    try:
-        ftp = ftplib.FTP()
-        ftp.connect(ftp_cfg["host"], 21, timeout=30)
-        ftp.login(ftp_cfg["user"], ftp_cfg["password"])
-
-        racine  = ftp.nlst()
-        dossier = "/htdocs"
-        if "htdocs" not in racine:
-            for d in racine:
-                if any(x in d.lower() for x in ["htdocs", "www", "public"]):
-                    dossier = f"/{d}"
-                    break
-        chemin = ftp_cfg["path"] if ftp_cfg["path"] else f"{dossier}/veille-ia.html"
-
-        # Lit l'historique embarqué dans le fichier FTP existant
-        historique_existant = _lire_donnees_ftp(ftp, chemin)
-
-        # Fusion : existant FTP + historique actuel (Supabase ou local)
-        historique_fusionne = _fusionner_historiques(historique_existant, historique_actuel)
-
-        # Regénère le HTML depuis la fusion complète
-        date_maj   = datetime.now().strftime("%d/%m/%Y")
-        contenu    = generer_contenu_html(historique_fusionne, date_maj)
-        html_final = generer_html_complet(contenu, date_maj)
-
-        # Embarque le JSON
-        json_data  = json.dumps(historique_fusionne, ensure_ascii=False)
-        html_final = html_final.replace(
-            "</body>",
-            f"\n{_FTP_DATA_MARKER}{json_data}{_FTP_DATA_END}\n</body>"
-        )
-
-        ftp.storbinary(f"STOR {chemin}", io.BytesIO(html_final.encode("utf-8")))
-        ftp.quit()
-
-        nb_sujets   = len([k for k in historique_fusionne if not k.startswith("__")])
-        nb_sessions = sum(len(v) for v in historique_fusionne.values() if isinstance(v, list))
-        return True, f"FTP OK → {chemin} ({nb_sujets} sujets, {nb_sessions} sessions)"
-
-    except Exception as e:
-        return False, f"Erreur FTP : {e}"
 
 
 def workflow_creer_post(sujet, resultats_recherche, callback_statut=None):
