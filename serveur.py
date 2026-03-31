@@ -1,8 +1,5 @@
 # ============================================================
 # SERVEUR — Logique métier de la veille technologique
-# Corrections :
-#   - Storage injecté via contexte (pas de monkey-patch)
-#   - FTP : lecture + fusion du fichier existant, pas d'écrasement
 # ============================================================
 
 from ddgs import DDGS
@@ -26,7 +23,7 @@ except ImportError:
     FEEDPARSER_OK = False
 
 # ============================================================
-# FICHIERS DE DONNÉES (fallback local)
+# CHEMINS LOCAUX (fallback si pas de storage Supabase)
 # ============================================================
 import os as _os
 
@@ -47,19 +44,11 @@ VEILLE_PAGE_ID_FILE = _os.path.join(_APP, "veille_page_id.json")
 HISTORIQUE_FILE     = _os.path.join(_APP, "historique_veille.json")
 
 # ============================================================
-# CONTEXTE STORAGE — injecté depuis app.py ou cron.py
-# Évite le monkey-patching qui ne fonctionnait pas
+# CONTEXTE STORAGE — injecté via set_storage_context()
 # ============================================================
-
 _storage_context = None
 
 def set_storage_context(ctx):
-    """
-    Injecte le module storage avec l'utilisateur déjà défini.
-    Appelé depuis app.py après connexion et depuis cron.py.
-    ctx doit exposer : charger_config, sauvegarder_config,
-                       charger_historique, sauvegarder_historique
-    """
     global _storage_context
     _storage_context = ctx
 
@@ -98,20 +87,15 @@ def _sauvegarder_historique_ctx(h):
     sauvegarder_historique_local(h)
 
 # ============================================================
-# GROQ
+# GROQ & CONSTANTES
 # ============================================================
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-
-FTP_REMOTE_PATH = "/htdocs/veille-ia.html"
 
 HEADERS_WEB = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                   "AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
 }
 
-# ============================================================
-# DOMAINES
-# ============================================================
 DOMAINES_FR_PRIORITAIRES = [
     "lemonde.fr","lefigaro.fr","liberation.fr","20minutes.fr",
     "bfmtv.com","franceinfo.fr","numerama.com","01net.com",
@@ -162,7 +146,7 @@ FLUX_RSS_IA = [
 ]
 
 # ============================================================
-# CONFIG — fonctions locales (fallback)
+# CONFIG — fonctions publiques
 # ============================================================
 
 def charger_config_local():
@@ -177,7 +161,6 @@ def sauvegarder_config_local(config: dict):
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(config, f, ensure_ascii=False, indent=2)
 
-# Alias publics utilisés par app.py
 def charger_config():
     return _charger_config_ctx()
 
@@ -197,7 +180,7 @@ def tester_connexion_wp(url, user, pwd):
                          headers={"Authorization": f"Basic {token}"},
                          timeout=8)
         if r.status_code == 200:
-            return True, f"Connexion reussie ! Connecte en tant que : {r.json().get('name', user)}"
+            return True, f"Connexion reussie ! Connecte : {r.json().get('name', user)}"
         elif r.status_code == 401:
             return False, "Identifiants incorrects."
         elif r.status_code == 403:
@@ -207,7 +190,7 @@ def tester_connexion_wp(url, user, pwd):
         else:
             return False, f"Erreur {r.status_code}."
     except requests.exceptions.ConnectionError:
-        est_local = any(x in url.lower() for x in ["localhost",".local","127.0.0.1"])
+        est_local = any(x in url.lower() for x in ["localhost", ".local", "127.0.0.1"])
         return False, "Site local inaccessible." if est_local else "Site distant inaccessible."
     except requests.exceptions.Timeout:
         return False, "Delai depasse."
@@ -235,15 +218,15 @@ def config_existe():
 def _ftp_config():
     config = charger_config()
     return {
-        "host":     config.get("ftp_host",     ""),
-        "user":     config.get("ftp_user",     ""),
+        "host":     config.get("ftp_host", ""),
+        "user":     config.get("ftp_user", ""),
         "password": config.get("ftp_password", ""),
-        "path":     config.get("ftp_path",     "/htdocs/veille-ia.html"),
+        "path":     config.get("ftp_path", "/htdocs/veille-ia.html"),
     }
 
 def ftp_est_configure():
     cfg = _ftp_config()
-    placeholders = {"","if0_xxxxxxx","xxxx xxxx xxxx","votre mot de passe ftp"}
+    placeholders = {"", "if0_xxxxxxx", "xxxx xxxx xxxx", "votre mot de passe ftp"}
     host = cfg["host"].strip().lower()
     user = cfg["user"].strip().lower()
     pwd  = cfg["password"].strip().lower()
@@ -267,7 +250,7 @@ def _wp_base():
     if not base:
         return ""
     if "/wp-json" not in base:
-        base = base + "/wp-json/wp/v2"
+        base += "/wp-json/wp/v2"
     return base
 
 def obtenir_ou_creer_page():
@@ -288,7 +271,7 @@ def obtenir_ou_creer_page():
         if not isinstance(pages, list):
             pages = []
         for page in pages:
-            if "veille ia" in page.get("title",{}).get("rendered","").lower():
+            if "veille ia" in page.get("title", {}).get("rendered", "").lower():
                 pid = page["id"]
                 with open(VEILLE_PAGE_ID_FILE, "w") as f:
                     json.dump({"id": pid}, f)
@@ -321,14 +304,13 @@ def normaliser(texte):
     )
 
 def est_bloque(r, sujet=""):
-    url   = r.get("href","")
-    titre = normaliser(r.get("title",""))
-    body  = normaliser(r.get("body",""))
+    url   = r.get("href", "")
+    titre = normaliser(r.get("title", ""))
+    body  = normaliser(r.get("body", ""))
     dom   = urlparse(url).netloc.lower()
     if any(d in dom for d in DOMAINES_GOUVERNEMENTAUX_BLOQUES):
         return True
-    url_n = normaliser(url)
-    if any(p in url_n for p in PATTERNS_GOUVERNEMENTAUX_BLOQUES):
+    if any(p in normaliser(url) for p in PATTERNS_GOUVERNEMENTAUX_BLOQUES):
         return True
     if any(t in titre for t in TITRES_HORS_SUJET):
         return True
@@ -342,7 +324,7 @@ def est_bloque(r, sujet=""):
 def deduplique_semantique(liste, seuil=0.75):
     uniques, titres_vus = [], []
     for r in liste:
-        titre = normaliser(r.get("title",""))
+        titre = normaliser(r.get("title", ""))
         if not any(SequenceMatcher(None, titre, t).ratio() > seuil for t in titres_vus):
             uniques.append(r)
             titres_vus.append(titre)
@@ -351,12 +333,12 @@ def deduplique_semantique(liste, seuil=0.75):
 def detecter_doublons_contenu(nouveaux_articles, sessions_existantes, seuil=0.70):
     resumes_existants = []
     for s in sessions_existantes:
-        for a in s.get("articles",[]):
-            pts = a.get("resume_ollama",[])
+        for a in s.get("articles", []):
+            pts = a.get("resume_ollama", [])
             if pts and pts != ["Contenu non accessible pour ce site."]:
-                resumes_existants.append((" ".join(pts).lower(), a.get("title",""), a.get("href","")))
+                resumes_existants.append((" ".join(pts).lower(), a.get("title", ""), a.get("href", "")))
     for article in nouveaux_articles:
-        pts = article.get("resume_ollama",[])
+        pts = article.get("resume_ollama", [])
         if not pts or pts == ["Contenu non accessible pour ce site."]:
             continue
         texte_nouveau = " ".join(pts).lower()
@@ -424,9 +406,9 @@ def extraire_texte_page(url):
 
 def scorer_resultat(r, sujet):
     score = 0
-    url   = r.get("href","")
-    titre = r.get("title","")
-    body  = r.get("body","")
+    url   = r.get("href", "")
+    titre = r.get("title", "")
+    body  = r.get("body", "")
     dom   = urlparse(url).netloc.lower()
     tn    = normaliser(titre)
     bn    = normaliser(body)
@@ -543,19 +525,19 @@ def generer_resume_global(sujet, articles):
     if not articles:
         return "Aucun article analysé."
     if not GROQ_API_KEY:
-        return "Clé API Groq manquante."
+        return "Clé API Groq manquante (variable GROQ_API_KEY)."
     contexte = ""
     for i, a in enumerate(articles[:12]):
-        titre  = a.get("title","")
-        dom    = urlparse(a.get("href","")).netloc
-        points = a.get("resume_ollama",[])
-        inacc  = not points or points in [["Contenu non accessible pour ce site."],["Résumé non disponible."]]
+        titre  = a.get("title", "")
+        dom    = urlparse(a.get("href", "")).netloc
+        points = a.get("resume_ollama", [])
+        inacc  = not points or points in [["Contenu non accessible pour ce site."], ["Résumé non disponible."]]
         if not inacc:
             contexte += f"\n[{i+1}] {titre} ({dom})\n"
             for p in points[:3]:
                 contexte += f"  - {p}\n"
         else:
-            body = a.get("body","").strip()
+            body = a.get("body", "").strip()
             if body and len(body) > 40:
                 contexte += f"\n[{i+1}] {titre} ({dom})\n  - {body[:300]}\n"
     if not contexte.strip():
@@ -607,8 +589,8 @@ Phrases directes. N'invente rien."""}
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {GROQ_API_KEY}",
                          "Content-Type": "application/json"},
-                json={"model":"llama-3.3-70b-versatile","max_tokens":3000,
-                      "messages":[{"role":"user","content":contexte[:2000]}]},
+                json={"model": "llama-3.3-70b-versatile", "max_tokens": 3000,
+                      "messages": [{"role": "user", "content": contexte[:2000]}]},
                 timeout=30
             )
             if resp2.status_code == 200:
@@ -618,7 +600,7 @@ Phrases directes. N'invente rien."""}
         return f"Erreur résumé global : {e}"
 
 # ============================================================
-# HISTORIQUE — fonctions locales (fallback)
+# HISTORIQUE — fonctions locales + alias publics
 # ============================================================
 
 def charger_historique_local():
@@ -632,7 +614,6 @@ def sauvegarder_historique_local(h):
     with open(HISTORIQUE_FILE, "w", encoding="utf-8") as f:
         json.dump(h, f, ensure_ascii=False, indent=2)
 
-# Alias publics
 def charger_historique():
     return _charger_historique_ctx()
 
@@ -643,29 +624,28 @@ def effacer_historique():
     _sauvegarder_historique_ctx({})
 
 def comparer_sessions(sujet, session_nouvelle, session_ancienne):
-    date_new = session_nouvelle.get("date","récente")
-    date_old = session_ancienne.get("date","précédente")
-    hrefs_anciens  = {a["href"] for a in session_ancienne.get("articles",[]) if "href" in a}
-    nouveaux       = [a for a in session_nouvelle.get("articles",[]) if a.get("href") and a["href"] not in hrefs_anciens]
-    hrefs_nouveaux = {a["href"] for a in session_nouvelle.get("articles",[]) if "href" in a}
-    disparus       = [a for a in session_ancienne.get("articles",[]) if a.get("href") and a["href"] not in hrefs_nouveaux]
+    date_new      = session_nouvelle.get("date", "récente")
+    date_old      = session_ancienne.get("date", "précédente")
+    hrefs_anciens = {a["href"] for a in session_ancienne.get("articles", []) if "href" in a}
+    nouveaux      = [a for a in session_nouvelle.get("articles", []) if a.get("href") and a["href"] not in hrefs_anciens]
+    hrefs_nouveaux = {a["href"] for a in session_nouvelle.get("articles", []) if "href" in a}
+    disparus      = [a for a in session_ancienne.get("articles", []) if a.get("href") and a["href"] not in hrefs_nouveaux]
     if not nouveaux and not disparus:
         return f"Aucune différence entre les sessions du {date_old} et du {date_new}."
-    nb_anc   = len(session_ancienne.get("articles") or [])
-    nb_new   = len(session_nouvelle.get("articles") or [])
-    contexte = f"Session précédente : {date_old} ({nb_anc} articles)\nSession récente : {date_new} ({nb_new} articles)\n\n"
+    contexte = (f"Session précédente : {date_old} ({len(session_ancienne.get('articles') or [])} articles)\n"
+                f"Session récente : {date_new} ({len(session_nouvelle.get('articles') or [])} articles)\n\n")
     if nouveaux:
         contexte += f"NOUVEAUX ARTICLES ({len(nouveaux)}) :\n"
         for a in nouveaux[:6]:
-            pts = a.get("resume_ollama",[])
-            contexte += f"- {a.get('title','')}\n"
+            pts = a.get("resume_ollama", [])
+            contexte += f"- {a.get('title', '')}\n"
             if pts and pts != ["Contenu non accessible pour ce site."]:
                 for p in pts[:2]:
                     contexte += f"  · {p}\n"
     if disparus:
         contexte += f"\nARTICLES DISPARUS ({len(disparus)}) :\n"
         for a in disparus[:4]:
-            contexte += f"- {a.get('title','')}\n"
+            contexte += f"- {a.get('title', '')}\n"
     if not GROQ_API_KEY:
         return contexte
     try:
@@ -677,8 +657,8 @@ def comparer_sessions(sujet, session_nouvelle, session_ancienne):
                 "model": "llama-3.3-70b-versatile",
                 "max_tokens": 1000,
                 "messages": [
-                    {"role":"system","content":"Tu compares deux sessions de veille technologique."},
-                    {"role":"user","content":f"Sujet : \"{sujet}\"\n\n{contexte}\n\nRédige un résumé des évolutions."}
+                    {"role": "system", "content": "Tu compares deux sessions de veille technologique."},
+                    {"role": "user", "content": f"Sujet : \"{sujet}\"\n\n{contexte}\n\nRédige un résumé des évolutions."}
                 ]
             }, timeout=30
         )
@@ -712,9 +692,8 @@ def rechercher(sujet_brut, callback_statut=None):
                     ss + " artificial intelligence"
                 ]
                 for q in queries:
-                    resultats_ddg = ddgs.text(q, region="fr-fr", max_results=25) or []
-                    for r in resultats_ddg:
-                        lien = r.get("href","#")
+                    for r in (ddgs.text(q, region="fr-fr", max_results=25) or []):
+                        lien = r.get("href", "#")
                         if lien not in ids_vus:
                             ids_vus.add(lien)
                             r["sous_sujet"] = ss
@@ -729,16 +708,16 @@ def rechercher(sujet_brut, callback_statut=None):
             try:
                 feed = feedparser.parse(url_flux)
                 for entry in feed.entries[:20]:
-                    lien  = entry.get("link","")
-                    titre = entry.get("title","")
-                    body  = entry.get("summary","")
+                    lien  = entry.get("link", "")
+                    titre = entry.get("title", "")
+                    body  = entry.get("summary", "")
                     if not lien or lien in ids_vus:
                         continue
                     tn = normaliser(titre)
                     bn = normaliser(body)
                     if any(m in tn or m in bn for m in mots):
                         ids_vus.add(lien)
-                        data.append({"title":titre,"body":body,"href":lien,"source":"rss"})
+                        data.append({"title": titre, "body": body, "href": lien, "source": "rss"})
             except Exception:
                 continue
 
@@ -761,7 +740,7 @@ def rechercher(sujet_brut, callback_statut=None):
 def _formater_resume_html(texte, articles_ref):
     if not texte:
         return ""
-    index_urls = {i+1: (a.get("href",""), urlparse(a.get("href","")).netloc)
+    index_urls = {i+1: (a.get("href", ""), urlparse(a.get("href", "")).netloc)
                   for i, a in enumerate(articles_ref[:12])}
 
     def remplacer_citation(m):
@@ -785,42 +764,40 @@ def _formater_resume_html(texte, articles_ref):
         elif ligne.startswith("##"):
             titre = ligne.lstrip("# ").rstrip(": ").strip()
             html += f"<div style='font-size:13px;font-weight:bold;color:#f9e2af;margin:14px 0 6px 0;'>— {titre}</div>"
-        elif ligne.startswith(("- ","* ","• ")):
+        elif ligne.startswith(("- ", "* ", "• ")):
             point = re.sub(r'\*\*', '', ligne.lstrip("-*• ").strip())
-            point = point.replace("<","&lt;").replace(">","&gt;")
+            point = point.replace("<", "&lt;").replace(">", "&gt;")
             point = re.sub(r'\[(\d+)\]', remplacer_citation, point)
             html += f"<div style='padding:3px 0 3px 14px;border-left:2px solid #45475a;margin:3px 0;line-height:1.6;'>{point}</div>"
         else:
-            ligne = re.sub(r'\*\*', '', ligne).replace("<","&lt;").replace(">","&gt;")
+            ligne = re.sub(r'\*\*', '', ligne).replace("<", "&lt;").replace(">", "&gt;")
             ligne = re.sub(r'\[(\d+)\]', remplacer_citation, ligne)
             html += f"<p style='margin:6px 0;line-height:1.7;'>{ligne}</p>"
     return html
 
 def generer_bloc_mot_cle(mot_cle, articles, tab_id, resume_global_texte="", date_session="", badge=""):
-    date_affichee = date_session or (articles[0].get("date_recherche","N/A") if articles else "N/A")
+    date_affichee = date_session or (articles[0].get("date_recherche", "N/A") if articles else "N/A")
     lignes_tableau = ""
     for a in articles:
-        dom    = urlparse(a.get("href","")).netloc
+        dom    = urlparse(a.get("href", "")).netloc
         langue = "FR" if dom.endswith(".fr") or any(d in dom for d in DOMAINES_FR_PRIORITAIRES) else "EN"
-        points = a.get("resume_ollama",[])
-        if points and points not in [["Contenu non accessible pour ce site."],["Résumé non disponible."]]:
+        points = a.get("resume_ollama", [])
+        if points and points not in [["Contenu non accessible pour ce site."], ["Résumé non disponible."]]:
             html_pts = "<ul style='margin:6px 0 0 0;padding-left:18px;'>"
             for pt in points:
-                pt_s = pt.replace("<","&lt;").replace(">","&gt;")
+                pt_s = pt.replace("<", "&lt;").replace(">", "&gt;")
                 html_pts += f"<li style='margin:4px 0;font-size:12px;color:#6c7086;line-height:1.6;'>{pt_s}</li>"
             html_pts += "</ul>"
         else:
             html_pts = "<div style='font-size:12px;color:#6c7086;margin-top:4px;font-style:italic;'>Résumé non disponible.</div>"
-        doublon      = a.get("doublon_de","")
+        doublon       = a.get("doublon_de", "")
         badge_doublon = ("<span style='background:#f9e2af;color:#1e1e2e;font-size:10px;padding:2px 6px;border-radius:8px;margin-left:6px;'>~ doublon</span>" if doublon else "")
-        titre_a = a.get("title","Sans titre")
-        href_a  = a.get("href","#")
         lignes_tableau += f"""
         <tr>
             <td style="padding:8px;text-align:center;vertical-align:top;">{langue}</td>
-            <td style="padding:8px;vertical-align:top;"><strong>{titre_a}</strong>{badge_doublon}{html_pts}</td>
+            <td style="padding:8px;vertical-align:top;"><strong>{a.get('title','')}</strong>{badge_doublon}{html_pts}</td>
             <td style="padding:8px;text-align:center;vertical-align:top;white-space:nowrap;">
-                <a href="{href_a}" style="color:#89b4fa;" target="_blank">ouvrir</a>
+                <a href="{a.get('href','#')}" style="color:#89b4fa;" target="_blank">ouvrir</a>
             </td>
         </tr>"""
     section_resume = ""
@@ -828,7 +805,9 @@ def generer_bloc_mot_cle(mot_cle, articles, tab_id, resume_global_texte="", date
         html_r = _formater_resume_html(resume_global_texte, articles)
         section_resume = f"""
         <div style="margin-top:18px;padding:18px;background:linear-gradient(135deg,#1e1e2e,#2a2a3e);border-left:4px solid #f9e2af;border-radius:8px;">
-            <div style="font-size:14px;font-weight:bold;color:#f9e2af;margin-bottom:14px;">Synthèse — {mot_cle} <span style="font-size:11px;font-weight:normal;color:#a6adc8;">({len(articles)} articles)</span></div>
+            <div style="font-size:14px;font-weight:bold;color:#f9e2af;margin-bottom:14px;">
+                Synthèse — {mot_cle} <span style="font-size:11px;font-weight:normal;color:#a6adc8;">({len(articles)} articles)</span>
+            </div>
             <div style="font-size:13px;color:#cdd6f4;">{html_r}</div>
         </div>"""
     return f"""
@@ -864,9 +843,9 @@ def generer_contenu_html(historique, date):
         if sessions and isinstance(sessions[0], dict) and "articles" in sessions[0]:
             contenu += f"<div style='margin-bottom:32px;'><div style='font-size:20px;font-weight:bold;color:#89b4fa;padding:12px 0;border-bottom:2px solid #45475a;margin-bottom:16px;'>{mot_cle.upper()}</div>"
             for si, session in enumerate(sessions):
-                date_session = session.get("date","N/A")
-                articles     = sorted(session.get("articles",[]), key=lambda x: x.get("score",0), reverse=True)
-                rg           = session.get("resume_global","")
+                date_session = session.get("date", "N/A")
+                articles     = sorted(session.get("articles", []), key=lambda x: x.get("score", 0), reverse=True)
+                rg           = session.get("resume_global", "")
                 tab_id       = f"tab_{idx}_{si}"
                 if not articles:
                     continue
@@ -874,7 +853,7 @@ def generer_contenu_html(historique, date):
                 contenu += generer_bloc_mot_cle(mot_cle, articles, tab_id, rg, date_session, badge)
             contenu += "</div>"
         else:
-            tries = sorted(sessions, key=lambda x: x.get("score",0), reverse=True)
+            tries = sorted(sessions, key=lambda x: x.get("score", 0), reverse=True)
             contenu += generer_bloc_mot_cle(mot_cle, tries, f"tab_{idx}_0", "", "Historique", "")
         idx += 1
     return contenu
@@ -886,7 +865,7 @@ def generer_html_complet(contenu_body, date):
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<!-- Anti-cache : {ts} -->
+<!-- ts:{ts} -->
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -910,7 +889,7 @@ p{{color:gray;font-size:13px;}}
 </html>"""
 
 # ============================================================
-# PUBLICATION
+# PUBLICATION WORDPRESS
 # ============================================================
 
 def publier_wordpress(contenu, page_id):
@@ -921,48 +900,89 @@ def publier_wordpress(contenu, page_id):
         r = requests.post(
             f"{base}/pages/{page_id}",
             headers=_get_wp_headers(),
-            json={"title":"Veille Technologique","content":contenu,"status":"publish"},
+            json={"title": "Veille Technologique", "content": contenu, "status": "publish"},
             timeout=15
         )
-        if r.status_code in [200,201]:
+        if r.status_code in [200, 201]:
             return True, "WordPress mis a jour"
         return False, f"Erreur WP {r.status_code}"
     except Exception as e:
         return False, f"Erreur WP : {e}"
 
-def _lire_html_ftp(ftp, chemin):
-    """Lit le fichier HTML existant sur le FTP. Retourne le contenu ou None."""
+# ============================================================
+# PUBLICATION FTP — FUSION PROPRE
+#
+# Principe : le fichier HTML sur le FTP embarque un bloc JSON
+# caché (commentaire HTML) contenant tout l'historique des
+# sujets déjà publiés. À chaque publication :
+#   1. On lit le fichier existant et on extrait ce JSON
+#   2. On fusionne avec le nouvel historique (upsert par sujet)
+#   3. On regénère le HTML complet depuis la fusion
+#   4. On réécrit le fichier avec le JSON mis à jour
+#
+# Aucune regex fragile sur le HTML — données propres en JSON.
+# ============================================================
+
+_FTP_DATA_MARKER = "<!--VEILLE_DATA:"
+_FTP_DATA_END    = ":END_VEILLE_DATA-->"
+
+def _lire_donnees_ftp(ftp, chemin) -> dict:
+    """Lit et parse le JSON embarqué dans le fichier FTP existant."""
     try:
         buf = io.BytesIO()
         ftp.retrbinary(f"RETR {chemin}", buf.write)
-        return buf.getvalue().decode("utf-8", errors="replace")
+        contenu = buf.getvalue().decode("utf-8", errors="replace")
+        debut = contenu.find(_FTP_DATA_MARKER)
+        fin   = contenu.find(_FTP_DATA_END)
+        if debut != -1 and fin != -1:
+            json_str = contenu[debut + len(_FTP_DATA_MARKER):fin]
+            return json.loads(json_str)
     except Exception:
-        return None
+        pass
+    return {}
 
-def _extraire_sujets_existants(html_existant):
+def _fusionner_historiques(existant: dict, nouveau: dict) -> dict:
     """
-    Extrait les blocs de sujet déjà présents dans le HTML FTP.
-    Retourne un dict {sujet_upper: bloc_html}
+    Fusionne deux historiques :
+    - Les sujets du nouveau remplacent/complètent ceux de l'existant
+    - Les sujets absents du nouveau sont conservés intacts
+    - Pour chaque sujet, les sessions sont fusionnées par date (upsert)
     """
-    if not html_existant:
-        return {}
-    sujets = {}
-    # Cherche les div de sujet par leur titre en majuscules
-    pattern = re.compile(
-        r"<div style='margin-bottom:32px;'>.*?<div style='font-size:20px;font-weight:bold;color:#89b4fa;[^']*'[^>]*>([^<]+)</div>(.*?)</div>\s*(?=<div style='margin-bottom:32px;'>|<p style=\"margin-top:30px)",
-        re.DOTALL
-    )
-    for m in pattern.finditer(html_existant):
-        sujet_titre = m.group(1).strip()
-        sujets[sujet_titre] = m.group(0)
-    return sujets
+    fusion = {}
 
-def publier_ftp(contenu_html):
+    # Copie tous les sujets existants
+    for sujet, sessions in existant.items():
+        fusion[sujet] = list(sessions) if isinstance(sessions, list) else sessions
+
+    # Applique le nouveau par-dessus
+    for sujet, sessions_new in nouveau.items():
+        if sujet.startswith("__") or not isinstance(sessions_new, list):
+            continue
+        if sujet not in fusion:
+            fusion[sujet] = []
+
+        # Index des sessions existantes par date
+        index_date = {s.get("date"): i for i, s in enumerate(fusion[sujet]) if isinstance(s, dict)}
+
+        for session in sessions_new:
+            if not isinstance(session, dict):
+                continue
+            date_s = session.get("date", "")
+            if date_s in index_date:
+                # Met à jour la session existante (articles + résumé)
+                idx = index_date[date_s]
+                fusion[sujet][idx]["articles"]      = session.get("articles", [])
+                fusion[sujet][idx]["resume_global"] = session.get("resume_global", "")
+            else:
+                # Nouvelle session — insère en tête
+                fusion[sujet].insert(0, session)
+
+    return fusion
+
+def publier_ftp(contenu_html_nouveau):
     """
-    Publie le fichier HTML sur FTP.
-    Si le fichier existe déjà, FUSIONNE le contenu :
-    - Les sujets déjà présents sont mis à jour avec le nouveau contenu
-    - Les sujets absents du nouveau contenu sont conservés
+    Publie sur FTP en fusionnant avec l'historique existant.
+    Ne supprime jamais les anciens sujets ni les anciennes sessions.
     """
     ftp_cfg = _ftp_config()
     try:
@@ -970,71 +990,64 @@ def publier_ftp(contenu_html):
         ftp.connect(ftp_cfg["host"], 21, timeout=30)
         ftp.login(ftp_cfg["user"], ftp_cfg["password"])
 
-        racine = ftp.nlst()
+        # Détermine le chemin cible
+        racine  = ftp.nlst()
         dossier = "/htdocs"
         if "htdocs" not in racine:
             for d in racine:
-                if any(x in d.lower() for x in ["htdocs","www","public"]):
+                if any(x in d.lower() for x in ["htdocs", "www", "public"]):
                     dossier = f"/{d}"
                     break
         chemin = ftp_cfg["path"] if ftp_cfg["path"] else f"{dossier}/veille-ia.html"
 
-        # Lecture du fichier existant
-        html_existant = _lire_html_ftp(ftp, chemin)
+        # 1. Lit l'historique embarqué dans le fichier existant
+        historique_existant = _lire_donnees_ftp(ftp, chemin)
 
-        if html_existant:
-            # Extrait le <body> du nouveau HTML
-            body_match = re.search(r"<body[^>]*>(.*?)</body>", contenu_html, re.DOTALL)
-            body_nouveau = body_match.group(1).strip() if body_match else contenu_html
+        # 2. Extrait l'historique du nouveau HTML (depuis son JSON embarqué)
+        #    Si pas encore embarqué (premier envoi), on parse le HTML
+        historique_nouveau  = _extraire_historique_depuis_html(contenu_html_nouveau)
 
-            # Extrait le <body> de l'existant
-            body_exist_match = re.search(r"<body[^>]*>(.*?)</body>", html_existant, re.DOTALL)
-            body_existant = body_exist_match.group(1).strip() if body_exist_match else ""
+        # 3. Fusion
+        historique_fusionne = _fusionner_historiques(historique_existant, historique_nouveau)
 
-            # Extrait les blocs de sujet existants
-            sujets_existants = {}
-            pattern_sujet = re.compile(
-                r"(<div style='margin-bottom:32px;'>"
-                r"<div style='font-size:20px;font-weight:bold;color:#89b4fa;[^>]*>([^<]+)</div>"
-                r".*?</div>\s*</div>)",
-                re.DOTALL
-            )
-            for m in pattern_sujet.finditer(body_existant):
-                titre = m.group(2).strip().lower()
-                sujets_existants[titre] = m.group(1)
+        # 4. Regénère le HTML complet depuis la fusion
+        date_maj    = datetime.now().strftime("%d/%m/%Y")
+        contenu     = generer_contenu_html(historique_fusionne, date_maj)
+        html_final  = generer_html_complet(contenu, date_maj)
 
-            # Extrait les blocs du nouveau HTML
-            sujets_nouveaux = {}
-            for m in pattern_sujet.finditer(body_nouveau):
-                titre = m.group(2).strip().lower()
-                sujets_nouveaux[titre] = m.group(1)
+        # 5. Embarque le JSON dans un commentaire caché
+        json_data   = json.dumps(historique_fusionne, ensure_ascii=False)
+        html_final  = html_final.replace(
+            "</body>",
+            f"\n{_FTP_DATA_MARKER}{json_data}{_FTP_DATA_END}\n</body>"
+        )
 
-            # Fusion : nouveaux remplacent existants, anciens conservés
-            sujets_fusionnes = {**sujets_existants, **sujets_nouveaux}
-
-            # Reconstruit le body
-            entete = re.search(r"^(.*?)<div style='margin-bottom:32px;'>", body_nouveau, re.DOTALL)
-            entete_html = entete.group(1) if entete else "<h2>Résultats par sujet</h2>"
-            pied = f"<p style=\"margin-top:30px;text-align:center;font-size:11px;color:#45475a;\">Mis à jour le {datetime.now().strftime('%d/%m/%Y')} — Veille technologique automatisée</p>"
-
-            body_final = entete_html + "\n".join(sujets_fusionnes.values()) + "\n" + pied
-
-            # Reconstruit le HTML complet
-            html_final = re.sub(
-                r"<body[^>]*>.*?</body>",
-                f"<body>{body_final}</body>",
-                contenu_html,
-                flags=re.DOTALL
-            )
-        else:
-            # Pas de fichier existant — on envoie directement
-            html_final = contenu_html
-
+        # 6. Envoie le fichier final
         ftp.storbinary(f"STOR {chemin}", io.BytesIO(html_final.encode("utf-8")))
         ftp.quit()
-        return True, f"FTP OK → {chemin} (fusion)"
+
+        nb_sujets  = len([k for k in historique_fusionne if not k.startswith("__")])
+        nb_sessions = sum(len(v) for v in historique_fusionne.values() if isinstance(v, list))
+        return True, f"FTP OK → {chemin} ({nb_sujets} sujets, {nb_sessions} sessions conservées)"
+
     except Exception as e:
         return False, f"Erreur FTP : {e}"
+
+def _extraire_historique_depuis_html(html: str) -> dict:
+    """
+    Tente d'extraire le JSON embarqué d'un HTML déjà traité.
+    Si absent (premier envoi), retourne dict vide — le workflow_publier
+    passe directement l'historique via charger_historique().
+    """
+    try:
+        debut = html.find(_FTP_DATA_MARKER)
+        fin   = html.find(_FTP_DATA_END)
+        if debut != -1 and fin != -1:
+            json_str = html[debut + len(_FTP_DATA_MARKER):fin]
+            return json.loads(json_str)
+    except Exception:
+        pass
+    return {}
 
 def creer_post_wordpress(contenu, sujet, date):
     base = _wp_base()
@@ -1044,10 +1057,10 @@ def creer_post_wordpress(contenu, sujet, date):
         r = requests.post(
             f"{base}/posts",
             headers=_get_wp_headers(),
-            json={"title":f"{sujet} — {date}","content":contenu,"status":"publish"},
+            json={"title": f"{sujet} — {date}", "content": contenu, "status": "publish"},
             timeout=15
         )
-        if r.status_code in [200,201]:
+        if r.status_code in [200, 201]:
             return True, "Post cree"
         return False, f"Erreur WP {r.status_code}"
     except Exception as e:
@@ -1065,7 +1078,7 @@ def supprimer_anciens_posts():
             return 0
         supprimes = 0
         for post in posts:
-            titre = post.get("title",{}).get("rendered","").lower()
+            titre = post.get("title", {}).get("rendered", "").lower()
             if "veille ia" in titre or "veille :" in titre:
                 requests.delete(f"{base}/posts/{post['id']}?force=true",
                                 headers=_get_wp_headers(), timeout=10)
@@ -1083,32 +1096,30 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None, limite=12
         if callback_statut:
             callback_statut(msg)
 
-    sujet = sujet.strip().lower()
-    date  = datetime.now().strftime("%d/%m/%Y")
-
-    # Charge via le contexte storage (Supabase si dispo, fichier sinon)
+    sujet      = sujet.strip().lower()
+    date       = datetime.now().strftime("%d/%m/%Y")
     historique = _charger_historique_ctx()
     sessions   = historique.get(sujet, [])
-    tous_hrefs = {a["href"] for s in sessions for a in s.get("articles",[]) if "href" in a}
+    tous_hrefs = {a["href"] for s in sessions for a in s.get("articles", []) if "href" in a}
 
     import time
     nb_max            = max(1, min(int(limite), 50))
     nouveaux_articles = []
 
-    for i, r in enumerate(resultats_recherche):
-        href = r.get("href","")
+    for r in resultats_recherche:
+        href = r.get("href", "")
         if not href or href in tous_hrefs:
             continue
         if len(nouveaux_articles) >= nb_max:
             break
         statut(f"Resume IA {len(nouveaux_articles)+1}/{nb_max} : {r.get('title','')[:45]}...")
-        resume = resumer_article_ollama(r.get("title",""), href, r.get("body",""))
+        resume = resumer_article_ollama(r.get("title", ""), href, r.get("body", ""))
         nouveaux_articles.append({
-            "title":         r.get("title",""),
-            "href":          href,
-            "score":         r.get("score",0),
-            "resume_ollama": resume,
-            "date_recherche":date
+            "title":          r.get("title", ""),
+            "href":           href,
+            "score":          r.get("score", 0),
+            "resume_ollama":  resume,
+            "date_recherche": date,
         })
         time.sleep(4)
 
@@ -1121,7 +1132,7 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None, limite=12
 
         resume_precedent = ""
         for s in sessions:
-            rg = s.get("resume_global","")
+            rg = s.get("resume_global", "")
             if rg and not rg.startswith("Erreur") and not rg.startswith("Aucun"):
                 resume_precedent = rg
                 break
@@ -1143,11 +1154,10 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None, limite=12
             sessions.insert(0, {
                 "date":          date,
                 "articles":      nouveaux_articles,
-                "resume_global": resume_global
+                "resume_global": resume_global,
             })
 
         historique[sujet] = sessions
-        # Sauvegarde via le contexte storage (Supabase si dispo)
         _sauvegarder_historique_ctx(historique)
 
         statut("Generation HTML...")
@@ -1162,7 +1172,8 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None, limite=12
 
     if ftp_est_configure():
         statut("Upload FTP (fusion)...")
-        ok2, msg2 = publier_ftp(html_complet)
+        # Passe l'historique complet au FTP pour la fusion
+        ok2, msg2 = _publier_ftp_avec_historique(html_complet, historique)
         resultats["ftp"] = (ok2, msg2)
     else:
         resultats["ftp"] = (True, "FTP non configure — ignore")
@@ -1170,33 +1181,79 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None, limite=12
     statut("Publication terminee !")
     return resultats
 
+def _publier_ftp_avec_historique(contenu_html, historique_actuel):
+    """
+    Version interne de publier_ftp appelée depuis workflow_publier.
+    Reçoit directement l'historique courant pour la fusion.
+    """
+    ftp_cfg = _ftp_config()
+    try:
+        ftp = ftplib.FTP()
+        ftp.connect(ftp_cfg["host"], 21, timeout=30)
+        ftp.login(ftp_cfg["user"], ftp_cfg["password"])
+
+        racine  = ftp.nlst()
+        dossier = "/htdocs"
+        if "htdocs" not in racine:
+            for d in racine:
+                if any(x in d.lower() for x in ["htdocs", "www", "public"]):
+                    dossier = f"/{d}"
+                    break
+        chemin = ftp_cfg["path"] if ftp_cfg["path"] else f"{dossier}/veille-ia.html"
+
+        # Lit l'historique embarqué dans le fichier FTP existant
+        historique_existant = _lire_donnees_ftp(ftp, chemin)
+
+        # Fusion : existant FTP + historique actuel (Supabase ou local)
+        historique_fusionne = _fusionner_historiques(historique_existant, historique_actuel)
+
+        # Regénère le HTML depuis la fusion complète
+        date_maj   = datetime.now().strftime("%d/%m/%Y")
+        contenu    = generer_contenu_html(historique_fusionne, date_maj)
+        html_final = generer_html_complet(contenu, date_maj)
+
+        # Embarque le JSON
+        json_data  = json.dumps(historique_fusionne, ensure_ascii=False)
+        html_final = html_final.replace(
+            "</body>",
+            f"\n{_FTP_DATA_MARKER}{json_data}{_FTP_DATA_END}\n</body>"
+        )
+
+        ftp.storbinary(f"STOR {chemin}", io.BytesIO(html_final.encode("utf-8")))
+        ftp.quit()
+
+        nb_sujets   = len([k for k in historique_fusionne if not k.startswith("__")])
+        nb_sessions = sum(len(v) for v in historique_fusionne.values() if isinstance(v, list))
+        return True, f"FTP OK → {chemin} ({nb_sujets} sujets, {nb_sessions} sessions)"
+
+    except Exception as e:
+        return False, f"Erreur FTP : {e}"
+
 
 def workflow_creer_post(sujet, resultats_recherche, callback_statut=None):
     def statut(msg):
         if callback_statut:
             callback_statut(msg)
 
-    date               = datetime.now().strftime("%d/%m/%Y")
-    nb                 = len(resultats_recherche)
-    lignes             = ""
+    date                 = datetime.now().strftime("%d/%m/%Y")
+    nb                   = len(resultats_recherche)
+    lignes               = ""
     articles_pour_global = []
 
     for i, r in enumerate(resultats_recherche):
         statut(f"Resume IA {i+1}/{nb}...")
-        resume = resumer_article_ollama(r.get("title",""), r.get("href",""), r.get("body",""))
-        dom    = urlparse(r.get("href","")).netloc
+        resume = resumer_article_ollama(r.get("title", ""), r.get("href", ""), r.get("body", ""))
+        dom    = urlparse(r.get("href", "")).netloc
         langue = "FR" if dom.endswith(".fr") or any(d in dom for d in DOMAINES_FR_PRIORITAIRES) else "EN"
         html_pts = "<ul style='margin:6px 0 0 0;padding-left:18px;'>"
         for pt in resume:
             html_pts += f"<li style='margin:4px 0;font-size:12px;color:#6c7086;'>{pt}</li>"
         html_pts += "</ul>"
-        titre_r = r.get("title","Sans titre")
-        href_r  = r.get("href","#")
         lignes += f"""
         <tr>
             <td style="padding:8px;text-align:center;">{langue}</td>
-            <td style="padding:8px;"><strong>{titre_r}</strong>{html_pts}</td>
-            <td style="padding:8px;text-align:center;"><a href="{href_r}" target="_blank">ouvrir</a></td>
+            <td style="padding:8px;"><strong>{r.get('title','')}</strong>{html_pts}</td>
+            <td style="padding:8px;text-align:center;"><a href="{r.get('href','#')}" target="_blank">ouvrir</a></td>
         </tr>"""
         articles_pour_global.append({**r, "resume_ollama": resume})
 
