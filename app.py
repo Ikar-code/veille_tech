@@ -550,11 +550,14 @@ def _render_theme_editor():
             if srv.ftp_est_configure():
                 with st.spinner("Regénération et upload FTP…"):
                     try:
-                        h=_historique()
-                        date=datetime.now().strftime("%d/%m/%Y")
-                        contenu=srv.generer_contenu_html(h,date)
-                        html_complet=srv.generer_html_complet_theme(contenu,date,st.session_state["theme_ftp"])
-                        ok,msg=srv._publier_ftp_avec_historique(html_complet,h)
+                        # ✅ CORRIGÉ : on passe l'historique local + le thème
+                        # Le FTP existant est complètement ignoré
+                        h = _historique()
+                        ok, msg = srv._publier_ftp_avec_historique(
+                            None,           # contenu_html ignoré dans la nouvelle version
+                            h,              # historique Supabase/local — source de vérité
+                            st.session_state["theme_ftp"]  # thème personnalisé
+                        )
                         if ok: st.success(f"✅ {msg}")
                         else:  st.error(msg)
                     except Exception as e:
