@@ -83,124 +83,25 @@ hr{border-color:var(--border)!important;margin:16px 0!important;}
 .stSelectbox div[data-baseweb="select"]>div{background:var(--overlay)!important;border-color:var(--border)!important;color:var(--text)!important;border-radius:8px!important;}
 .stNumberInput [data-baseweb="input"]{background:var(--overlay)!important;border-color:var(--border)!important;}
 .streamlit-expanderHeader{background:var(--surface)!important;border-radius:8px!important;color:var(--text)!important;}
-
-/* ── Animation de lancement ─────────────────────────────── */
-@keyframes pulse-ring {
-    0%   { transform: scale(0.8); opacity: 1; }
-    100% { transform: scale(2.2); opacity: 0; }
-}
-@keyframes scan-line {
-    0%   { transform: translateY(-100%); }
-    100% { transform: translateY(400%); }
-}
-@keyframes counter-up {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
-}
-@keyframes dot-blink {
-    0%,80%,100% { opacity: 0; }
-    40%          { opacity: 1; }
-}
-.launch-overlay {
-    background: linear-gradient(135deg, #0d0d1a 0%, #1e1e2e 100%);
-    border: 1px solid var(--blue);
-    border-radius: 16px;
-    padding: 40px 32px;
-    text-align: center;
-    position: relative;
-    overflow: hidden;
-    margin-bottom: 16px;
-}
-.launch-icon-wrap {
-    position: relative;
-    display: inline-block;
-    width: 80px;
-    height: 80px;
-    margin-bottom: 20px;
-}
-.launch-icon {
-    font-size: 48px;
-    line-height: 80px;
-    position: relative;
-    z-index: 2;
-    display: block;
-}
-.pulse-ring {
-    position: absolute;
-    top: 50%; left: 50%;
-    width: 60px; height: 60px;
-    margin: -30px 0 0 -30px;
-    border: 2px solid var(--blue);
-    border-radius: 50%;
-    animation: pulse-ring 1.4s ease-out infinite;
-    z-index: 1;
-}
-.pulse-ring:nth-child(2) { animation-delay: 0.4s; }
-.pulse-ring:nth-child(3) { animation-delay: 0.8s; }
-.scan-line {
-    position: absolute;
-    left: 0; right: 0;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, var(--blue), transparent);
-    animation: scan-line 2s linear infinite;
-    opacity: 0.6;
-}
-.launch-title {
-    font-family: 'Space Mono', monospace;
-    font-size: 18px;
-    color: var(--blue);
-    margin-bottom: 8px;
-    letter-spacing: 1px;
-}
-.launch-subject {
-    font-size: 13px;
-    color: var(--subtext);
-    margin-bottom: 24px;
-    font-style: italic;
-}
-.launch-steps {
-    display: flex;
-    justify-content: center;
-    gap: 24px;
-    margin-bottom: 20px;
-    flex-wrap: wrap;
-}
-.launch-step {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    animation: counter-up 0.4s ease forwards;
-    opacity: 0;
-}
-.launch-step:nth-child(1) { animation-delay: 0.1s; }
-.launch-step:nth-child(2) { animation-delay: 0.3s; }
-.launch-step:nth-child(3) { animation-delay: 0.5s; }
-.launch-step:nth-child(4) { animation-delay: 0.7s; }
-.step-icon { font-size: 22px; }
-.step-label {
-    font-size: 11px;
-    color: var(--subtext);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
-.typing-dots span {
-    display: inline-block;
-    width: 6px; height: 6px;
-    background: var(--blue);
-    border-radius: 50%;
-    margin: 0 2px;
-    animation: dot-blink 1.2s infinite;
-}
-.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
-.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
-.launch-status {
-    font-family: 'Space Mono', monospace;
-    font-size: 12px;
-    color: var(--green);
-    margin-top: 8px;
-    min-height: 20px;
-}
+@keyframes pulse-ring{0%{transform:scale(.8);opacity:1}100%{transform:scale(2.2);opacity:0}}
+@keyframes scan-line{0%{transform:translateY(-100%)}100%{transform:translateY(400%)}}
+@keyframes counter-up{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes dot-blink{0%,80%,100%{opacity:0}40%{opacity:1}}
+.launch-overlay{background:linear-gradient(135deg,#0d0d1a 0%,#1e1e2e 100%);border:1px solid var(--blue);border-radius:16px;padding:40px 32px;text-align:center;position:relative;overflow:hidden;margin-bottom:16px;}
+.launch-icon-wrap{position:relative;display:inline-block;width:80px;height:80px;margin-bottom:20px;}
+.launch-icon{font-size:48px;line-height:80px;position:relative;z-index:2;display:block;}
+.pulse-ring{position:absolute;top:50%;left:50%;width:60px;height:60px;margin:-30px 0 0 -30px;border:2px solid var(--blue);border-radius:50%;animation:pulse-ring 1.4s ease-out infinite;z-index:1;}
+.pulse-ring:nth-child(2){animation-delay:.4s}.pulse-ring:nth-child(3){animation-delay:.8s}
+.scan-line{position:absolute;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--blue),transparent);animation:scan-line 2s linear infinite;opacity:.6;}
+.launch-title{font-family:'Space Mono',monospace;font-size:18px;color:var(--blue);margin-bottom:8px;letter-spacing:1px;}
+.launch-subject{font-size:13px;color:var(--subtext);margin-bottom:24px;font-style:italic;}
+.launch-steps{display:flex;justify-content:center;gap:24px;margin-bottom:20px;flex-wrap:wrap;}
+.launch-step{display:flex;flex-direction:column;align-items:center;gap:6px;animation:counter-up .4s ease forwards;opacity:0;}
+.launch-step:nth-child(1){animation-delay:.1s}.launch-step:nth-child(2){animation-delay:.3s}.launch-step:nth-child(3){animation-delay:.5s}.launch-step:nth-child(4){animation-delay:.7s}
+.step-icon{font-size:22px}.step-label{font-size:11px;color:var(--subtext);text-transform:uppercase;letter-spacing:1px;}
+.typing-dots span{display:inline-block;width:6px;height:6px;background:var(--blue);border-radius:50%;margin:0 2px;animation:dot-blink 1.2s infinite;}
+.typing-dots span:nth-child(2){animation-delay:.2s}.typing-dots span:nth-child(3){animation-delay:.4s}
+.launch-status{font-family:'Space Mono',monospace;font-size:12px;color:var(--green);margin-top:8px;min-height:20px;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -210,9 +111,8 @@ hr{border-color:var(--border)!important;margin:16px 0!important;}
 def _init_state():
     defaults = {
         "resultats":[],"sujet_courant":"","logs":[],
-        "en_cours":False,"page":"veille",
+        "en_cours":False,"page":"accueil",
         "user":None,"session":None,"profil":{},
-        "show_auth":False,
         "dernier_log":"",
     }
     for k,v in defaults.items():
@@ -225,98 +125,91 @@ _init_state()
 # HELPERS
 # ============================================================
 def _log(msg):
-    h = datetime.now().strftime("%H:%M:%S")
-    entry = f"[{h}] {msg}"
-    st.session_state["logs"].append(entry)
-    st.session_state["dernier_log"] = msg
-    if len(st.session_state["logs"]) > 120:
-        st.session_state["logs"] = st.session_state["logs"][-100:]
+    h=datetime.now().strftime("%H:%M:%S")
+    st.session_state["logs"].append(f"[{h}] {msg}")
+    st.session_state["dernier_log"]=msg
+    if len(st.session_state["logs"])>120:
+        st.session_state["logs"]=st.session_state["logs"][-100:]
 
-def _badge(label, style="blue"):
+def _badge(label,style="blue"):
     return f'<span class="badge badge-{style}">{label}</span>'
 
 def _user_id():
-    u = st.session_state.get("user")
+    u=st.session_state.get("user")
     return u.id if u else None
 
 def _est_abonne():
-    if not AUTH_OK:
-        return False
-    uid = _user_id()
+    if not AUTH_OK: return False
+    uid=_user_id()
     return auth.est_abonne(uid) if uid else False
 
 def _goto(page):
-    st.session_state["page"] = page
+    st.session_state["page"]=page
     st.rerun()
 
 def _cfg():
     if STORAGE_OK:
-        try:
-            return storage.charger_config()
-        except Exception:
-            pass
+        try: return storage.charger_config()
+        except Exception: pass
     return srv.charger_config()
 
 def _save_cfg(c):
     if STORAGE_OK:
-        try:
-            storage.sauvegarder_config(c)
-            return
-        except Exception:
-            pass
+        try: storage.sauvegarder_config(c); return
+        except Exception: pass
     srv.sauvegarder_config(c)
 
 def _historique():
     if STORAGE_OK:
-        try:
-            return storage.charger_historique()
-        except Exception:
-            pass
+        try: return storage.charger_historique()
+        except Exception: pass
     return srv.charger_historique()
 
-def _effacer():
+def _effacer_sujet(sujet):
+    """Supprime uniquement un sujet spécifique de l'historique."""
+    h=_historique()
+    if sujet in h:
+        del h[sujet]
+        if STORAGE_OK:
+            try: storage.sauvegarder_historique(h); return
+            except Exception: pass
+        srv.sauvegarder_historique(h)
+
+def _effacer_tout():
     if STORAGE_OK:
-        try:
-            storage.effacer_historique()
-            return
-        except Exception:
-            pass
+        try: storage.effacer_historique(); return
+        except Exception: pass
     srv.effacer_historique()
 
-def _compteurs():
-    h = _historique()
-    nb_s, nb_a = 0, 0
-    for k, v in h.items():
-        if k.startswith("__") or not isinstance(v, list):
-            continue
-        nb_s += 1
-        for s in v:
-            if isinstance(s, dict):
-                nb_a += len(s.get("articles", []))
-    return nb_s, nb_a
+def _activer_storage(user_id):
+    if STORAGE_OK and user_id:
+        try:
+            storage.set_user(user_id)
+            srv.set_storage_context(storage)
+        except Exception:
+            pass
 
 # ============================================================
 # SIDEBAR
 # ============================================================
 def render_sidebar():
-    user   = st.session_state.get("user")
-    page   = st.session_state["page"]
-    abonne = _est_abonne()
+    user  =st.session_state.get("user")
+    page  =st.session_state["page"]
+    abonne=_est_abonne()
 
     with st.sidebar:
         st.markdown("## 🔭 Veille IA")
         st.markdown("---")
 
         if user:
-            email = user.email if user else "?"
+            email=user.email if user else "?"
             st.markdown(
                 f'<div style="padding:12px;background:var(--overlay);border-radius:10px;margin-bottom:12px;">'
                 f'<div style="font-size:11px;color:var(--subtext);margin-bottom:3px;">Connecté</div>'
                 f'<div style="font-size:12px;font-weight:500;word-break:break-all;">{email}</div>'
                 f'<div style="margin-top:6px;">'
                 f'{"<span class=\'badge badge-mauve\'>✨ Abonné</span>" if abonne else "<span class=\'badge badge-yellow\'>Gratuit</span>"}'
-                f'</div></div>', unsafe_allow_html=True
-            )
+                f'</div></div>',unsafe_allow_html=True)
             if not abonne:
                 st.markdown(
                     '<div style="background:rgba(203,166,247,.08);border:1px solid var(--mauve);'
@@ -324,154 +217,133 @@ def render_sidebar():
                     '<div style="font-size:11px;color:var(--mauve);font-weight:600;margin-bottom:3px;">Passer à illimité</div>'
                     '<div style="font-size:20px;font-weight:700;">2,99€'
                     '<span style="font-size:11px;font-weight:400;color:var(--subtext)">/mois</span></div>'
-                    '</div>', unsafe_allow_html=True
-                )
-        else:
-            st.markdown(
-                '<div style="background:rgba(137,180,250,.08);border:1px solid var(--blue);'
-                'border-radius:10px;padding:12px;margin-bottom:12px;text-align:center;">'
-                '<div style="font-size:12px;color:var(--subtext);margin-bottom:8px;">'
-                'Connectez-vous pour accéder à toutes les fonctionnalités</div>'
-                '</div>', unsafe_allow_html=True
-            )
-            if st.button("🔑 Se connecter", use_container_width=True, type="primary", key="sb_login"):
-                st.session_state["show_auth"] = True
-                st.rerun()
+                    '</div>',unsafe_allow_html=True)
 
-        st.markdown("---")
-        st.markdown("## Navigation")
-
-        if user:
-            pages = {
-                "🔍 Nouvelle veille": "veille",
-                "📚 Historique":      "historique",
-                "📊 Comparaison":     "comparaison",
-                "⏰ Automatisation":  "auto",
-                "⚙️ Configuration":   "config",
-                "✨ Abonnement":      "abonnement",
+            st.markdown("---")
+            st.markdown("## Navigation")
+            pages={
+                "🔍 Nouvelle veille":"veille",
+                "📚 Historique":     "historique",
+                "📊 Comparaison":    "comparaison",
+                "⏰ Automatisation": "auto",
+                "⚙️ Configuration":  "config",
+                "✨ Abonnement":     "abonnement",
             }
-        else:
-            pages = {
-                "🔍 Nouvelle veille": "veille",
-                "📚 Historique":      "historique",
-                "📊 Comparaison":     "comparaison",
-                "⚙️ Configuration":   "config",
-            }
+            for label,key in pages.items():
+                actif=page==key
+                if st.button(label,use_container_width=True,
+                             type="primary" if actif else "secondary",key=f"sb_nav_{key}"):
+                    st.session_state["page"]=key
+                    st.rerun()
 
-        for label, key in pages.items():
-            actif = page == key
-            if st.button(label, use_container_width=True,
-                         type="primary" if actif else "secondary", key=f"sb_nav_{key}"):
-                st.session_state["page"]      = key
-                st.session_state["show_auth"] = False
-                st.rerun()
-
-        st.markdown("---")
-
-        if user:
-            if st.button("🚪 Déconnexion", use_container_width=True, key="sb_logout"):
+            st.markdown("---")
+            if st.button("🚪 Déconnexion",use_container_width=True,key="sb_logout"):
                 if AUTH_OK:
-                    auth.deconnecter()
+                    try: auth.deconnecter()
+                    except Exception: pass
                 if STORAGE_OK:
-                    try:
-                        storage.set_user(None)
-                    except Exception:
-                        pass
+                    try: storage.set_user(None)
+                    except Exception: pass
                 st.session_state.update({
-                    "user": None, "session": None, "profil": {},
-                    "page": "veille", "show_auth": False
+                    "user":None,"session":None,"profil":{},
+                    "page":"accueil","dernier_log":""
                 })
                 st.rerun()
         else:
+            # Non connecté — juste le bouton de connexion
+            st.markdown(
+                '<div style="font-size:12px;color:var(--subtext);text-align:center;margin-bottom:12px;">'
+                'Connectez-vous pour accéder à la plateforme</div>',
+                unsafe_allow_html=True)
+            if st.button("🔑 Se connecter / S'inscrire",use_container_width=True,
+                         type="primary",key="sb_login"):
+                st.session_state["page"]="accueil"
+                st.rerun()
+            st.markdown("---")
             st.markdown(
                 '<p style="font-size:11px;color:var(--subtext);text-align:center;">'
-                'Veille auto · Groq · DuckDuckGo</p>', unsafe_allow_html=True
-            )
+                'Veille auto · Groq · DuckDuckGo</p>',unsafe_allow_html=True)
 
 # ============================================================
-# PAGE AUTH
+# PAGE ACCUEIL / AUTH (non connecté)
 # ============================================================
-def page_auth():
+def page_accueil():
     if not AUTH_OK:
         st.error("Service d'authentification indisponible.")
         return
-    col_l, col_c, col_r = st.columns([1, 1.2, 1])
+
+    col_l,col_c,col_r=st.columns([1,1.2,1])
     with col_c:
-        st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-        if st.button("← Retour", key="auth_back"):
-            st.session_state["show_auth"] = False
-            st.rerun()
+        st.markdown("<div style='height:30px'></div>",unsafe_allow_html=True)
         st.markdown(
-            '<div style="text-align:center;margin:20px 0 32px 0;">'
-            '<div style="font-family:Space Mono;font-size:24px;color:var(--blue);">🔭 Veille IA</div>'
-            '<div style="font-size:13px;color:var(--subtext);margin-top:8px;">Connexion à votre espace</div>'
-            '</div>', unsafe_allow_html=True
-        )
-        tab_co, tab_in = st.tabs(["Se connecter", "Créer un compte"])
+            '<div style="text-align:center;margin-bottom:32px;">'
+            '<div style="font-family:Space Mono;font-size:28px;color:var(--blue);">🔭 Veille IA</div>'
+            '<div style="font-size:14px;color:var(--subtext);margin-top:10px;">'
+            'Plateforme de veille académique automatisée</div>'
+            '</div>',unsafe_allow_html=True)
+
+        tab_co,tab_in=st.tabs(["Se connecter","Créer un compte"])
+
         with tab_co:
-            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-            email = st.text_input("Email", key="login_email", placeholder="votre@email.com")
-            pwd   = st.text_input("Mot de passe", type="password", key="login_pwd")
-            if st.button("Se connecter", use_container_width=True, type="primary", key="btn_login"):
+            st.markdown("<div style='height:8px'></div>",unsafe_allow_html=True)
+            email=st.text_input("Email",key="login_email",placeholder="votre@email.com")
+            pwd  =st.text_input("Mot de passe",type="password",key="login_pwd")
+
+            if st.button("Se connecter",use_container_width=True,type="primary",key="btn_login"):
                 if not email or not pwd:
                     st.error("Remplissez tous les champs.")
                 else:
                     with st.spinner("Connexion…"):
-                        res = auth.connecter(email, pwd)
+                        res=auth.connecter(email,pwd)
                     if res["ok"]:
-                        st.session_state["user"]      = res["user"]
-                        st.session_state["session"]   = res["session"]
-                        st.session_state["profil"]    = auth.get_profil(res["user"].id)
-                        st.session_state["show_auth"] = False
-                        st.session_state["page"]      = "veille"
-                        if STORAGE_OK:
-                            try:
-                                storage.set_user(res["user"].id)
-                                srv.set_storage_context(storage)
-                            except Exception:
-                                pass
+                        st.session_state["user"]   =res["user"]
+                        st.session_state["session"]=res["session"]
+                        st.session_state["profil"] =auth.get_profil(res["user"].id)
+                        st.session_state["page"]   ="veille"
+                        _activer_storage(res["user"].id)
                         st.rerun()
                     else:
                         st.error(res["message"])
-            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-            if st.button("Mot de passe oublié ?", use_container_width=True, key="btn_reset"):
+
+            st.markdown("<div style='height:8px'></div>",unsafe_allow_html=True)
+            if st.button("Mot de passe oublié ?",use_container_width=True,key="btn_reset"):
                 if email:
-                    res = auth.reinitialiser_mot_de_passe(email)
-                    if res["ok"]:
-                        st.success(res["message"])
-                    else:
-                        st.error(res["message"])
+                    res=auth.reinitialiser_mot_de_passe(email)
+                    st.success(res["message"]) if res["ok"] else st.error(res["message"])
                 else:
                     st.warning("Entrez votre email d'abord.")
+
             st.markdown("---")
-            if st.button("🔵 Continuer avec Google", use_container_width=True, key="btn_google"):
-                url = auth.connecter_google()
+            if st.button("🔵 Continuer avec Google",use_container_width=True,key="btn_google"):
+                url=auth.connecter_google()
                 if url:
-                    st.markdown(f'<meta http-equiv="refresh" content="0;url={url}">', unsafe_allow_html=True)
+                    st.markdown(f'<meta http-equiv="refresh" content="0;url={url}">',unsafe_allow_html=True)
                 else:
                     st.error("Google OAuth non configuré.")
+
         with tab_in:
-            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='height:8px'></div>",unsafe_allow_html=True)
             st.markdown(
                 '<div class="card card-green" style="padding:14px 16px;margin-bottom:16px;">'
                 '<div style="font-size:13px;font-weight:600;color:var(--green);margin-bottom:6px;">Offre gratuite</div>'
                 '<div style="font-size:12px;color:var(--subtext);line-height:1.8;">'
                 '✔ 1 recherche offerte<br>✔ Accès à l\'historique<br>✔ Sans carte bancaire'
-                '</div></div>', unsafe_allow_html=True
-            )
-            email2 = st.text_input("Email", key="reg_email", placeholder="votre@email.com")
-            pwd2   = st.text_input("Mot de passe", type="password", key="reg_pwd")
-            pwd2b  = st.text_input("Confirmer", type="password", key="reg_pwd2")
-            if st.button("Créer mon compte", use_container_width=True, type="primary", key="btn_register"):
+                '</div></div>',unsafe_allow_html=True)
+            email2=st.text_input("Email",key="reg_email",placeholder="votre@email.com")
+            pwd2  =st.text_input("Mot de passe",type="password",key="reg_pwd",help="Minimum 6 caractères")
+            pwd2b =st.text_input("Confirmer",type="password",key="reg_pwd2")
+            st.markdown('<div style="font-size:11px;color:var(--subtext);margin:8px 0;">En créant un compte vous acceptez nos CGU.</div>',unsafe_allow_html=True)
+
+            if st.button("Créer mon compte",use_container_width=True,type="primary",key="btn_register"):
                 if not email2 or not pwd2:
                     st.error("Remplissez tous les champs.")
-                elif pwd2 != pwd2b:
+                elif pwd2!=pwd2b:
                     st.error("Les mots de passe ne correspondent pas.")
-                elif len(pwd2) < 6:
+                elif len(pwd2)<6:
                     st.error("Minimum 6 caractères.")
                 else:
                     with st.spinner("Création…"):
-                        res = auth.inscrire(email2, pwd2)
+                        res=auth.inscrire(email2,pwd2)
                     if res["ok"]:
                         st.success(res["message"])
                         st.info("Vérifiez votre email puis connectez-vous.")
@@ -485,68 +357,60 @@ def page_auto():
     st.markdown("# ⏰ Veille automatique")
     st.markdown("### Recevez votre veille par email chaque jour à l'heure de votre choix")
     st.markdown("---")
-    if not _user_id():
-        st.warning("Connectez-vous pour configurer la veille automatique.")
-        return
     if not _est_abonne():
         st.markdown(
             '<div class="card card-mauve" style="padding:24px;text-align:center;">'
             '<div style="font-size:20px;margin-bottom:8px;">🔒</div>'
             '<div style="font-size:16px;font-weight:600;color:var(--mauve);margin-bottom:8px;">Fonctionnalité Premium</div>'
             '<div style="font-size:13px;color:var(--subtext);">La veille automatique par email est réservée aux abonnés.</div>'
-            '</div>', unsafe_allow_html=True
-        )
-        if st.button("✨ S'abonner à 2,99€/mois", type="primary"):
+            '</div>',unsafe_allow_html=True)
+        if st.button("✨ S'abonner à 2,99€/mois",type="primary"):
             _goto("abonnement")
         return
-    uid   = _user_id()
-    prefs = {}
+    uid=_user_id()
+    prefs={}
     if STORAGE_OK:
-        try:
-            prefs = storage.charger_veille_auto(uid) or {}
-        except Exception:
-            prefs = {}
-    st.markdown('<div class="card card-accent">', unsafe_allow_html=True)
+        try: prefs=storage.charger_veille_auto(uid) or {}
+        except Exception: prefs={}
+    st.markdown('<div class="card card-accent">',unsafe_allow_html=True)
     st.markdown("#### Configurer votre veille automatique")
-    sujets = st.text_area("Sujets (séparés par des virgules)", value=prefs.get("sujets",""),
-                           placeholder="ex: intelligence artificielle, cybersécurité, LLM", height=80)
+    sujets=st.text_area("Sujets (séparés par des virgules)",value=prefs.get("sujets",""),
+                         placeholder="ex: intelligence artificielle, cybersécurité, LLM",height=80)
     st.markdown("#### Heure d'envoi")
-    st.markdown('<div style="font-size:12px;color:var(--subtext);margin-bottom:12px;">La Réunion = UTC+4 · France = UTC+1 (hiver) / UTC+2 (été)</div>', unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1,1,2])
+    st.markdown('<div style="font-size:12px;color:var(--subtext);margin-bottom:12px;">La Réunion = UTC+4 · France = UTC+1 (hiver) / UTC+2 (été)</div>',unsafe_allow_html=True)
+    col1,col2,col3=st.columns([1,1,2])
     with col1:
-        heure_utc = st.selectbox("Heure (UTC)", list(range(24)), index=int(prefs.get("heure",4)),
-                                  format_func=lambda h: f"{h:02d}h")
+        heure_utc=st.selectbox("Heure (UTC)",list(range(24)),index=int(prefs.get("heure",4)),
+                                format_func=lambda h:f"{h:02d}h")
     with col2:
-        opts    = [0,15,30,45]
-        min_val = int(prefs.get("minute",0))
-        min_idx = opts.index(min_val) if min_val in opts else 0
-        minute_utc = st.selectbox("Minute", opts, index=min_idx, format_func=lambda m: f"{m:02d}")
+        opts=[0,15,30,45]
+        min_val=int(prefs.get("minute",0))
+        min_idx=opts.index(min_val) if min_val in opts else 0
+        minute_utc=st.selectbox("Minute",opts,index=min_idx,format_func=lambda m:f"{m:02d}")
     with col3:
-        h_reunion = (heure_utc+4) % 24
+        h_reunion=(heure_utc+4)%24
         st.markdown(
             f'<div class="metric-box" style="margin-top:20px;">'
             f'<span class="metric-val" style="font-size:20px;">{h_reunion:02d}h{minute_utc:02d}</span>'
-            f'<span class="metric-lbl">Heure Réunion (UTC+4)</span></div>', unsafe_allow_html=True
-        )
-    actif = st.toggle("Activer la veille automatique", value=bool(prefs.get("actif",True)))
-    st.markdown("</div>", unsafe_allow_html=True)
+            f'<span class="metric-lbl">Heure Réunion (UTC+4)</span></div>',unsafe_allow_html=True)
+    actif=st.toggle("Activer la veille automatique",value=bool(prefs.get("actif",True)))
+    st.markdown("</div>",unsafe_allow_html=True)
     if prefs.get("derniere_execution"):
         try:
-            d = datetime.fromisoformat(str(prefs["derniere_execution"]).replace("Z","+00:00"))
-            st.markdown(f'<div style="font-size:12px;color:var(--subtext);margin-top:8px;">Dernière exécution : {d.strftime("%d/%m/%Y à %H:%M")} UTC</div>', unsafe_allow_html=True)
-        except Exception:
-            pass
-    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-    if st.button("💾 Enregistrer", type="primary"):
+            d=datetime.fromisoformat(str(prefs["derniere_execution"]).replace("Z","+00:00"))
+            st.markdown(f'<div style="font-size:12px;color:var(--subtext);margin-top:8px;">Dernière exécution : {d.strftime("%d/%m/%Y à %H:%M")} UTC</div>',unsafe_allow_html=True)
+        except Exception: pass
+    st.markdown("<div style='height:12px'></div>",unsafe_allow_html=True)
+    if st.button("💾 Enregistrer",type="primary"):
         if not sujets.strip():
             st.error("Entrez au moins un sujet.")
         elif not STORAGE_OK:
             st.error("Module storage indisponible.")
         else:
             try:
-                ok = storage.sauvegarder_veille_auto(sujets.strip(), int(heure_utc), int(minute_utc), actif, uid)
+                ok=storage.sauvegarder_veille_auto(sujets.strip(),int(heure_utc),int(minute_utc),actif,uid)
                 if ok:
-                    st.success(f"Veille {'activée' if actif else 'désactivée'} — envoi à {h_reunion:02d}h{minute_utc:02d} (Réunion)" if actif else "Veille désactivée.")
+                    st.success(f"Veille {'activée' if actif else 'désactivée'} — envoi à {h_reunion:02d}h{minute_utc:02d} (Réunion)")
                 else:
                     st.error("Erreur Supabase.")
             except Exception as e:
@@ -560,8 +424,7 @@ def page_auto():
         '2. À l\'heure choisie, il lance la recherche sur vos sujets<br>'
         '3. Il génère les résumés IA et vous envoie un email<br>'
         '4. Vous n\'avez rien à faire — tout se passe sans connexion'
-        '</div></div>', unsafe_allow_html=True
-    )
+        '</div></div>',unsafe_allow_html=True)
 
 # ============================================================
 # PAGE ABONNEMENT
@@ -575,13 +438,12 @@ def page_abonnement():
             '<div style="font-size:32px;margin-bottom:8px;">✅</div>'
             '<div style="font-size:18px;font-weight:600;color:var(--green);margin-bottom:8px;">Abonnement actif</div>'
             '<div style="font-size:13px;color:var(--subtext);">Recherches illimitées + veille email quotidienne.</div>'
-            '</div>', unsafe_allow_html=True
-        )
+            '</div>',unsafe_allow_html=True)
         st.info("Pour annuler, contactez support@veille-ia.fr")
     else:
-        col_l, col_c, col_r = st.columns([1,1.5,1])
+        col_l,col_c,col_r=st.columns([1,1.5,1])
         with col_c:
-            stripe_url = os.getenv("STRIPE_PAYMENT_LINK","")
+            stripe_url=os.getenv("STRIPE_PAYMENT_LINK","")
             st.markdown(
                 '<div class="abonnement-box">'
                 '<div style="font-size:13px;color:var(--mauve);font-weight:600;letter-spacing:2px;text-transform:uppercase;margin-bottom:16px;">Veille IA Premium</div>'
@@ -590,237 +452,224 @@ def page_abonnement():
                 '<div style="text-align:left;margin-bottom:24px;font-size:13px;line-height:2;">'
                 '✔ Recherches illimitées<br>✔ Veille automatique par email<br>'
                 '✔ Historique complet<br>✔ Résumés IA par article<br>✔ Comparaison entre sessions'
-                '</div></div>', unsafe_allow_html=True
-            )
+                '</div></div>',unsafe_allow_html=True)
             if stripe_url:
                 st.markdown(
                     f'<a href="{stripe_url}" target="_blank" style="display:block;text-align:center;'
                     f'background:var(--mauve);color:#1e1e2e;font-weight:700;font-size:15px;'
                     f'padding:14px;border-radius:10px;text-decoration:none;">'
-                    f'✨ S\'abonner — 2,99€/mois</a>', unsafe_allow_html=True
-                )
+                    f'✨ S\'abonner — 2,99€/mois</a>',unsafe_allow_html=True)
             else:
                 st.warning("Paiement Stripe disponible prochainement.")
 
 # ============================================================
-# PAGE VEILLE — avec animation de lancement
+# PAGE VEILLE
 # ============================================================
 def page_veille():
     st.markdown("# 🔍 Nouvelle veille")
     st.markdown("### Recherche, scoring et publication automatique")
     st.markdown("---")
 
-    uid    = _user_id()
-    abonne = _est_abonne()
+    uid   =_user_id()
+    abonne=_est_abonne()
 
     if AUTH_OK and uid:
         if not abonne:
-            quota = auth.get_quota(uid)
-            reste = max(0, auth.RECHERCHES_GRATUITES - quota.get("searches_used",0))
-            if reste == 0:
+            quota=auth.get_quota(uid)
+            reste=max(0,auth.RECHERCHES_GRATUITES-quota.get("searches_used",0))
+            if reste==0:
                 st.markdown(
                     '<div class="card card-red" style="padding:24px;text-align:center;">'
                     '<div style="font-size:20px;margin-bottom:8px;">🔒</div>'
                     '<div style="font-size:16px;font-weight:600;color:var(--red);margin-bottom:8px;">Limite gratuite atteinte</div>'
                     '<div style="font-size:13px;color:var(--subtext);">Abonnez-vous pour un accès illimité.</div>'
-                    '</div>', unsafe_allow_html=True
-                )
-                if st.button("✨ S'abonner à 2,99€/mois", type="primary"):
+                    '</div>',unsafe_allow_html=True)
+                if st.button("✨ S'abonner à 2,99€/mois",type="primary"):
                     _goto("abonnement")
                 return
-            st.markdown(f'<div style="margin-bottom:16px;">{_badge(f"Compte gratuit · {reste} recherche(s) restante(s)","yellow")}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="margin-bottom:16px;">{_badge(f"Compte gratuit · {reste} recherche(s) restante(s)","yellow")}</div>',unsafe_allow_html=True)
         else:
-            st.markdown(f'<div style="margin-bottom:16px;">{_badge("✨ Abonné · Recherches illimitées","mauve")}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="margin-bottom:16px;">{_badge("✨ Abonné · Recherches illimitées","mauve")}</div>',unsafe_allow_html=True)
 
-    col_form, col_log = st.columns([1,1], gap="large")
-
+    col_form,col_log=st.columns([1,1],gap="large")
     with col_form:
-        st.markdown('<div class="card card-accent">', unsafe_allow_html=True)
-        sujet  = st.text_area("Sujets de recherche", placeholder="ex: cybersécurité IA, deepfake, LLM Europe", height=90)
-        c1, c2 = st.columns(2)
-        with c1: limite = st.number_input("Articles max", min_value=1, max_value=50, value=10, step=1)
-        with c2: mode   = st.selectbox("Mode", ["Mise à jour page","Créer un post"])
-        st.markdown("</div>", unsafe_allow_html=True)
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-        c1, c2 = st.columns(2)
-        with c1:
-            lancer = st.button("▶ Lancer", use_container_width=True,
-                               disabled=st.session_state["en_cours"], type="primary")
+        st.markdown('<div class="card card-accent">',unsafe_allow_html=True)
+        sujet =st.text_area("Sujets de recherche",placeholder="ex: cybersécurité IA, deepfake, LLM Europe",height=90)
+        c1,c2 =st.columns(2)
+        with c1: limite=st.number_input("Articles max",min_value=1,max_value=50,value=10,step=1)
+        with c2: mode  =st.selectbox("Mode",["Mise à jour page","Créer un post"])
+        st.markdown("</div>",unsafe_allow_html=True)
+        st.markdown("<div style='height:8px'></div>",unsafe_allow_html=True)
+        c1,c2=st.columns(2)
+        with c1: lancer=st.button("▶ Lancer",use_container_width=True,disabled=st.session_state["en_cours"],type="primary")
         with c2:
-            if st.button("🗑 Logs", use_container_width=True):
-                st.session_state["logs"] = []
+            if st.button("🗑 Logs",use_container_width=True):
+                st.session_state["logs"]=[]
                 st.rerun()
-
         if st.session_state["resultats"] and not st.session_state["en_cours"]:
             st.markdown("---")
-            nb_r = len(st.session_state["resultats"])
-            st.markdown(
-                f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">'
-                f'<span style="font-family:Space Mono;font-size:13px;">Résultats</span>'
-                f'{_badge(f"{nb_r} articles","green")}</div>', unsafe_allow_html=True
-            )
+            nb_r=len(st.session_state["resultats"])
+            st.markdown(f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;"><span style="font-family:Space Mono;font-size:13px;">Résultats</span>{_badge(f"{nb_r} articles","green")}</div>',unsafe_allow_html=True)
             for r in st.session_state["resultats"][:8]:
-                dom   = urlparse(r.get("href","")).netloc
-                score = r.get("score",0)
-                c     = "green" if score>=80 else "yellow" if score>=50 else "red"
+                dom  =urlparse(r.get("href","")).netloc
+                score=r.get("score",0)
+                c    ="green" if score>=80 else "yellow" if score>=50 else "red"
                 st.markdown(
                     f'<div class="card" style="padding:12px 16px;margin-bottom:6px;">'
                     f'<div style="font-size:13px;font-weight:500;margin-bottom:4px;">{r.get("title","")[:72]}…</div>'
                     f'<div style="display:flex;gap:8px;">'
                     f'<span style="font-size:11px;color:var(--subtext)">{dom}</span>'
-                    f'{_badge(f"score {score}",c)}</div></div>', unsafe_allow_html=True
-                )
+                    f'{_badge(f"score {score}",c)}</div></div>',unsafe_allow_html=True)
 
     with col_log:
-        # ── Animation de lancement ──────────────────────────
         if st.session_state["en_cours"]:
-            sujet_affiche = st.session_state.get("sujet_courant","…")
-            dernier_log   = st.session_state.get("dernier_log","Initialisation…")
+            sujet_affiche=st.session_state.get("sujet_courant","…")
+            dernier_log  =st.session_state.get("dernier_log","Initialisation…")
             st.markdown(f"""
             <div class="launch-overlay">
                 <div class="scan-line"></div>
                 <div class="launch-icon-wrap">
                     <span class="launch-icon">🔭</span>
-                    <div class="pulse-ring"></div>
-                    <div class="pulse-ring"></div>
-                    <div class="pulse-ring"></div>
+                    <div class="pulse-ring"></div><div class="pulse-ring"></div><div class="pulse-ring"></div>
                 </div>
                 <div class="launch-title">VEILLE EN COURS</div>
                 <div class="launch-subject">« {sujet_affiche} »</div>
                 <div class="launch-steps">
-                    <div class="launch-step">
-                        <span class="step-icon">🔍</span>
-                        <span class="step-label">Recherche</span>
-                    </div>
-                    <div class="launch-step">
-                        <span class="step-icon">⚙️</span>
-                        <span class="step-label">Scoring</span>
-                    </div>
-                    <div class="launch-step">
-                        <span class="step-icon">🤖</span>
-                        <span class="step-label">Résumés IA</span>
-                    </div>
-                    <div class="launch-step">
-                        <span class="step-icon">📡</span>
-                        <span class="step-label">Publication</span>
-                    </div>
+                    <div class="launch-step"><span class="step-icon">🔍</span><span class="step-label">Recherche</span></div>
+                    <div class="launch-step"><span class="step-icon">⚙️</span><span class="step-label">Scoring</span></div>
+                    <div class="launch-step"><span class="step-icon">🤖</span><span class="step-label">Résumés IA</span></div>
+                    <div class="launch-step"><span class="step-icon">📡</span><span class="step-label">Publication</span></div>
                 </div>
-                <div class="typing-dots">
-                    <span></span><span></span><span></span>
-                </div>
+                <div class="typing-dots"><span></span><span></span><span></span></div>
                 <div class="launch-status">{dernier_log}</div>
-            </div>
-            """, unsafe_allow_html=True)
+            </div>""",unsafe_allow_html=True)
         else:
-            # ── Journal normal ──────────────────────────────
-            st.markdown(
-                '<div style="font-family:Space Mono;font-size:12px;color:var(--subtext);'
-                'text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">— Journal</div>',
-                unsafe_allow_html=True
-            )
-            log_html = "<br>".join(
-                st.session_state["logs"][-40:]
-                if st.session_state["logs"]
-                else ["<span style='color:var(--subtext)'>En attente de lancement…</span>"]
-            )
-            st.markdown(f'<div class="log-box">{log_html}</div>', unsafe_allow_html=True)
+            st.markdown('<div style="font-family:Space Mono;font-size:12px;color:var(--subtext);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">— Journal</div>',unsafe_allow_html=True)
+            log_html="<br>".join(st.session_state["logs"][-40:] if st.session_state["logs"] else ["<span style='color:var(--subtext)'>En attente de lancement…</span>"])
+            st.markdown(f'<div class="log-box">{log_html}</div>',unsafe_allow_html=True)
 
-    # ── Lancement ──────────────────────────────────────────
     if lancer and sujet.strip() and not st.session_state["en_cours"]:
         if AUTH_OK and uid:
-            ok_q, msg_q = auth.peut_rechercher(uid)
+            ok_q,msg_q=auth.peut_rechercher(uid)
             if not ok_q:
                 st.error(msg_q)
                 return
-
-        st.session_state["en_cours"]      = True
-        st.session_state["resultats"]     = []
-        st.session_state["sujet_courant"] = sujet.strip()
-        st.session_state["logs"]          = []
-        st.session_state["dernier_log"]   = "Initialisation…"
+        st.session_state.update({
+            "en_cours":True,"resultats":[],
+            "sujet_courant":sujet.strip(),"logs":[],
+            "dernier_log":"Initialisation…"
+        })
         st.rerun()
-
     elif st.session_state["en_cours"] and st.session_state.get("sujet_courant"):
-        # Exécution du workflow après le rerun qui affiche l'animation
-        sujet_run = st.session_state["sujet_courant"]
+        sujet_run=st.session_state["sujet_courant"]
         try:
-            resultats = srv.rechercher(sujet_run, callback_statut=_log)
-            st.session_state["resultats"] = resultats
+            resultats=srv.rechercher(sujet_run,callback_statut=_log)
+            st.session_state["resultats"]=resultats
             _log(f"✅ {len(resultats)} résultats")
-
             if AUTH_OK and uid and not abonne:
                 auth.incrementer_quota(uid)
-
-            if mode == "Mise à jour page":
-                res = srv.workflow_publier(sujet_run, resultats, callback_statut=_log, limite=int(limite))
-                for canal, (ok, msg) in res.items():
+            if mode=="Mise à jour page":
+                res=srv.workflow_publier(sujet_run,resultats,callback_statut=_log,limite=int(limite))
+                for canal,(ok,msg) in res.items():
                     _log(f"{'✅' if ok else '❌'} {canal.upper()} : {msg}")
             else:
-                ok, msg = srv.workflow_creer_post(sujet_run, resultats[:int(limite)], callback_statut=_log)
+                ok,msg=srv.workflow_creer_post(sujet_run,resultats[:int(limite)],callback_statut=_log)
                 _log(f"{'✅' if ok else '❌'} Post : {msg}")
-
         except Exception as e:
             _log(f"❌ Erreur : {e}")
-
-        st.session_state["en_cours"]    = False
-        st.session_state["dernier_log"] = ""
+        st.session_state["en_cours"]=False
+        st.session_state["dernier_log"]=""
         st.rerun()
-
     elif lancer and not sujet.strip():
         st.warning("Entrez au moins un sujet.")
 
 # ============================================================
-# PAGE HISTORIQUE
+# PAGE HISTORIQUE — suppression sélective
 # ============================================================
 def page_historique():
     st.markdown("# 📚 Historique des veilles")
     st.markdown("---")
-    h = _historique()
-    sujets = [k for k in h if not k.startswith("__") and isinstance(h[k],list)]
+    h=_historique()
+    sujets=[k for k in h if not k.startswith("__") and isinstance(h[k],list)]
     if not sujets:
         st.info("Aucun historique. Lancez une première veille.")
         return
-    col_g, col_d = st.columns([1,2], gap="large")
+
+    col_g,col_d=st.columns([1,2],gap="large")
     with col_g:
-        sujet_sel = st.selectbox("Sujet", sujets)
-        sessions  = h.get(sujet_sel,[])
-        st.markdown(f'<div class="metric-box" style="margin:12px 0;"><span class="metric-val">{len(sessions)}</span><span class="metric-lbl">Sessions</span></div>', unsafe_allow_html=True)
-        if st.button("🗑 Effacer", type="secondary", use_container_width=True):
-            _effacer()
-            st.success("Effacé.")
-            st.rerun()
+        sujet_sel=st.selectbox("Sujet à afficher",sujets,key="hist_sujet_sel")
+        sessions =h.get(sujet_sel,[])
+        st.markdown(
+            f'<div class="metric-box" style="margin:12px 0;">'
+            f'<span class="metric-val">{len(sessions)}</span>'
+            f'<span class="metric-lbl">Sessions</span></div>',unsafe_allow_html=True)
+
+        st.markdown("---")
+        st.markdown("#### Supprimer des sujets")
+
+        # Multiselect pour choisir quels sujets supprimer
+        sujets_a_supprimer=st.multiselect(
+            "Sélectionnez les sujets à supprimer",
+            options=sujets,
+            default=[],
+            key="sujets_suppr",
+            placeholder="Choisissez un ou plusieurs sujets…"
+        )
+
+        if sujets_a_supprimer:
+            st.markdown(
+                f'<div style="font-size:12px;color:var(--red);margin:6px 0;">'
+                f'⚠️ {len(sujets_a_supprimer)} sujet(s) sélectionné(s) pour suppression</div>',
+                unsafe_allow_html=True)
+            if st.button(f"🗑 Supprimer {len(sujets_a_supprimer)} sujet(s)",
+                         type="secondary",use_container_width=True,key="btn_suppr_sel"):
+                for s in sujets_a_supprimer:
+                    _effacer_sujet(s)
+                st.success(f"{len(sujets_a_supprimer)} sujet(s) supprimé(s).")
+                st.rerun()
+        else:
+            st.markdown(
+                '<div style="font-size:12px;color:var(--subtext);margin-top:6px;">'
+                'Sélectionnez des sujets ci-dessus pour les supprimer.</div>',
+                unsafe_allow_html=True)
+
+        st.markdown("---")
+        with st.expander("⚠️ Tout effacer"):
+            st.markdown('<div style="font-size:12px;color:var(--red);">Cette action supprime tout l\'historique sans retour possible.</div>',unsafe_allow_html=True)
+            if st.button("🗑 Effacer tout l'historique",type="secondary",use_container_width=True,key="btn_eff_tout"):
+                _effacer_tout()
+                st.success("Historique effacé.")
+                st.rerun()
+
     with col_d:
-        for i, session in enumerate(sessions):
-            if not isinstance(session, dict):
-                continue
-            date_s   = session.get("date","?")
-            articles = session.get("articles",[])
-            rg       = session.get("resume_global","")
-            with st.expander(f"📅 {date_s} — {len(articles)} articles", expanded=(i==0)):
+        for i,session in enumerate(sessions):
+            if not isinstance(session,dict): continue
+            date_s  =session.get("date","?")
+            articles=session.get("articles",[])
+            rg      =session.get("resume_global","")
+            with st.expander(f"📅 {date_s} — {len(articles)} articles",expanded=(i==0)):
                 if rg and not rg.startswith("Erreur"):
-                    rg_affiche = rg[:1200] + ("…" if len(rg)>1200 else "")
+                    rg_affiche=rg[:1200]+("…" if len(rg)>1200 else "")
                     st.markdown(
                         f'<div class="card" style="border-left:3px solid var(--yellow);margin-bottom:16px;">'
                         f'<div style="font-size:12px;font-weight:600;color:var(--yellow);margin-bottom:8px;">SYNTHÈSE</div>'
                         f'<div style="font-size:13px;line-height:1.7;">{rg_affiche}</div></div>',
-                        unsafe_allow_html=True
-                    )
-                for a in sorted(articles, key=lambda x: x.get("score",0), reverse=True):
-                    dom    = urlparse(a.get("href","")).netloc
-                    score  = a.get("score",0)
-                    points = a.get("resume_ollama",[])
-                    pts_html = ""
-                    if points and points != ["Contenu non accessible pour ce site."]:
-                        pts_html = "".join(f'<li style="font-size:12px;color:var(--subtext);margin:3px 0">{p}</li>' for p in points[:3])
-                        pts_html = f"<ul style='padding-left:18px;margin:6px 0 0 0'>{pts_html}</ul>"
+                        unsafe_allow_html=True)
+                for a in sorted(articles,key=lambda x:x.get("score",0),reverse=True):
+                    dom   =urlparse(a.get("href","")).netloc
+                    score =a.get("score",0)
+                    points=a.get("resume_ollama",[])
+                    pts_html=""
+                    if points and points!=["Contenu non accessible pour ce site."]:
+                        pts_html="".join(f'<li style="font-size:12px;color:var(--subtext);margin:3px 0">{p}</li>' for p in points[:3])
+                        pts_html=f"<ul style='padding-left:18px;margin:6px 0 0 0'>{pts_html}</ul>"
                     st.markdown(
                         f'<div class="card" style="padding:12px 16px;margin-bottom:6px;">'
                         f'<div style="display:flex;justify-content:space-between;">'
                         f'<a href="{a.get("href","")}" target="_blank" style="color:var(--blue);font-size:13px;font-weight:500">{a.get("title","")[:80]}</a>'
                         f'<span class="badge badge-blue">{score}</span></div>'
                         f'<div style="font-size:11px;color:var(--subtext);margin-top:4px">{dom}</div>'
-                        f'{pts_html}</div>', unsafe_allow_html=True
-                    )
+                        f'{pts_html}</div>',unsafe_allow_html=True)
 
 # ============================================================
 # PAGE COMPARAISON
@@ -828,51 +677,46 @@ def page_historique():
 def page_comparaison():
     st.markdown("# 📊 Comparaison de sessions")
     st.markdown("---")
-    h = _historique()
-    sujets = [k for k in h if not k.startswith("__") and isinstance(h[k],list)]
+    h=_historique()
+    sujets=[k for k in h if not k.startswith("__") and isinstance(h[k],list)]
     if not sujets:
         st.info("Aucun historique.")
         return
-    sujet_sel = st.selectbox("Sujet", sujets)
-    sessions  = [s for s in h.get(sujet_sel,[]) if isinstance(s,dict)]
-    if len(sessions) < 2:
+    sujet_sel=st.selectbox("Sujet",sujets)
+    sessions=[s for s in h.get(sujet_sel,[]) if isinstance(s,dict)]
+    if len(sessions)<2:
         st.warning("Il faut au moins 2 sessions.")
         return
-    dates = [s.get("date",f"Session {i+1}") for i,s in enumerate(sessions)]
-    c1, c2 = st.columns(2)
-    with c1: date_rec = st.selectbox("Session récente",    dates, index=0)
-    with c2: date_anc = st.selectbox("Session précédente", dates, index=min(1,len(dates)-1))
-    if date_rec == date_anc:
+    dates=[s.get("date",f"Session {i+1}") for i,s in enumerate(sessions)]
+    c1,c2=st.columns(2)
+    with c1: date_rec=st.selectbox("Session récente",dates,index=0)
+    with c2: date_anc=st.selectbox("Session précédente",dates,index=min(1,len(dates)-1))
+    if date_rec==date_anc:
         st.warning("Choisissez deux sessions différentes.")
         return
-    sess_rec = next((s for s in sessions if s.get("date")==date_rec), None)
-    sess_anc = next((s for s in sessions if s.get("date")==date_anc), None)
+    sess_rec=next((s for s in sessions if s.get("date")==date_rec),None)
+    sess_anc=next((s for s in sessions if s.get("date")==date_anc),None)
     if not sess_rec or not sess_anc:
         st.error("Sessions introuvables.")
         return
-    hrefs_anc = {a["href"] for a in sess_anc.get("articles",[]) if "href" in a}
-    hrefs_rec = {a["href"] for a in sess_rec.get("articles",[]) if "href" in a}
-    nouveaux  = hrefs_rec - hrefs_anc
-    disparus  = hrefs_anc - hrefs_rec
-    c1, c2, c3 = st.columns(3)
-    for col, val, lbl, clr in [
-        (c1, len(sess_rec.get("articles",[])), "Récents",  "blue"),
-        (c2, len(nouveaux),                    "Nouveaux", "green"),
-        (c3, len(disparus),                    "Disparus", "red"),
-    ]:
+    hrefs_anc={a["href"] for a in sess_anc.get("articles",[]) if "href" in a}
+    hrefs_rec={a["href"] for a in sess_rec.get("articles",[]) if "href" in a}
+    nouveaux=hrefs_rec-hrefs_anc
+    disparus=hrefs_anc-hrefs_rec
+    c1,c2,c3=st.columns(3)
+    for col,val,lbl,clr in [(c1,len(sess_rec.get("articles",[])),"Récents","blue"),(c2,len(nouveaux),"Nouveaux","green"),(c3,len(disparus),"Disparus","red")]:
         with col:
-            st.markdown(f'<div class="metric-box"><span class="metric-val" style="color:var(--{clr})">{val}</span><span class="metric-lbl">{lbl}</span></div>', unsafe_allow_html=True)
-    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
-    if st.button("🧠 Générer l'analyse", type="primary"):
+            st.markdown(f'<div class="metric-box"><span class="metric-val" style="color:var(--{clr})">{val}</span><span class="metric-lbl">{lbl}</span></div>',unsafe_allow_html=True)
+    st.markdown("<div style='height:16px'></div>",unsafe_allow_html=True)
+    if st.button("🧠 Générer l'analyse",type="primary"):
         with st.spinner("Analyse IA…"):
             try:
-                analyse = srv.comparer_sessions(sujet_sel, sess_rec, sess_anc)
+                analyse=srv.comparer_sessions(sujet_sel,sess_rec,sess_anc)
                 st.markdown(
                     f'<div class="card card-accent" style="margin-top:16px;">'
                     f'<div style="font-size:12px;font-weight:600;color:var(--mauve);margin-bottom:12px;">ANALYSE COMPARATIVE</div>'
                     f'<div style="font-size:13px;line-height:1.8;white-space:pre-line">{analyse}</div></div>',
-                    unsafe_allow_html=True
-                )
+                    unsafe_allow_html=True)
             except Exception as e:
                 st.error(f"Erreur : {e}")
 
@@ -882,92 +726,74 @@ def page_comparaison():
 def page_config():
     st.markdown("# ⚙️ Configuration")
     st.markdown("---")
-    cfg = _cfg()
-    tab_wp, tab_ftp = st.tabs(["🌐 WordPress","📡 FTP"])
+    cfg=_cfg()
+    tab_wp,tab_ftp=st.tabs(["🌐 WordPress","📡 FTP"])
     with tab_wp:
         st.markdown("#### Connexion WordPress")
-        wp_base = st.text_input("URL du site", value=cfg.get("wp_base",""), placeholder="https://monsite.com")
-        c1, c2  = st.columns(2)
-        with c1: wp_user = st.text_input("Identifiant",      value=cfg.get("wp_user",""))
-        with c2: wp_pwd  = st.text_input("Mot de passe app", value=cfg.get("wp_password",""), type="password")
-        cs, ct  = st.columns(2)
+        wp_base=st.text_input("URL du site",value=cfg.get("wp_base",""),placeholder="https://monsite.com")
+        c1,c2=st.columns(2)
+        with c1: wp_user=st.text_input("Identifiant",value=cfg.get("wp_user",""))
+        with c2: wp_pwd =st.text_input("Mot de passe app",value=cfg.get("wp_password",""),type="password")
+        cs,ct=st.columns(2)
         with cs:
-            if st.button("💾 Sauvegarder", use_container_width=True):
+            if st.button("💾 Sauvegarder",use_container_width=True):
                 cfg.update({"wp_base":wp_base,"wp_user":wp_user,"wp_password":wp_pwd})
                 _save_cfg(cfg)
                 st.success("Sauvegardé !")
         with ct:
-            if st.button("🔌 Tester WP", use_container_width=True):
-                ok, msg = srv.tester_connexion_wp(wp_base, wp_user, wp_pwd)
-                if ok:
-                    st.success(msg)
-                else:
-                    st.error(msg)
+            if st.button("🔌 Tester WP",use_container_width=True):
+                ok,msg=srv.tester_connexion_wp(wp_base,wp_user,wp_pwd)
+                st.success(msg) if ok else st.error(msg)
     with tab_ftp:
         st.markdown("#### Connexion FTP")
-        ftp_host = st.text_input("Hôte FTP", value=cfg.get("ftp_host",""))
-        c1, c2   = st.columns(2)
-        with c1: ftp_user = st.text_input("Utilisateur FTP", value=cfg.get("ftp_user",""))
-        with c2: ftp_pwd  = st.text_input("Mot de passe FTP",value=cfg.get("ftp_password",""), type="password")
-        ftp_path = st.text_input("Chemin distant", value=cfg.get("ftp_path","/htdocs/veille-ia.html"))
-        cs, ct   = st.columns(2)
+        ftp_host=st.text_input("Hôte FTP",value=cfg.get("ftp_host",""))
+        c1,c2=st.columns(2)
+        with c1: ftp_user=st.text_input("Utilisateur FTP",value=cfg.get("ftp_user",""))
+        with c2: ftp_pwd =st.text_input("Mot de passe FTP",value=cfg.get("ftp_password",""),type="password")
+        ftp_path=st.text_input("Chemin distant",value=cfg.get("ftp_path","/htdocs/veille-ia.html"))
+        cs,ct=st.columns(2)
         with cs:
-            if st.button("💾 Sauvegarder FTP", use_container_width=True):
+            if st.button("💾 Sauvegarder FTP",use_container_width=True):
                 cfg.update({"ftp_host":ftp_host,"ftp_user":ftp_user,"ftp_password":ftp_pwd,"ftp_path":ftp_path})
                 _save_cfg(cfg)
                 st.success("Sauvegardé !")
         with ct:
-            if st.button("🔌 Tester FTP", use_container_width=True):
-                ok, msg = srv.tester_connexion_ftp(ftp_host, ftp_user, ftp_pwd)
-                if ok:
-                    st.success(msg)
-                else:
-                    st.error(msg)
+            if st.button("🔌 Tester FTP",use_container_width=True):
+                ok,msg=srv.tester_connexion_ftp(ftp_host,ftp_user,ftp_pwd)
+                st.success(msg) if ok else st.error(msg)
     st.markdown("---")
-    c1, c2 = st.columns(2)
+    c1,c2=st.columns(2)
     with c1:
-        if STORAGE_OK:
-            try:
-                mode_s = "Supabase ☁️" if storage.SUPABASE_OK else "Fichier local 💾"
-            except AttributeError:
-                mode_s = "Storage ☁️"
-        else:
-            mode_s = "Fichier local 💾"
-        st.markdown(f'<div class="card"><div style="font-size:11px;color:var(--subtext)">Stockage</div><div style="font-size:13px;font-weight:500;margin-top:4px">{mode_s}</div></div>', unsafe_allow_html=True)
+        mode_s="Supabase ☁️" if (STORAGE_OK and getattr(storage,"SUPABASE_OK",False)) else "Fichier local 💾"
+        st.markdown(f'<div class="card"><div style="font-size:11px;color:var(--subtext)">Stockage</div><div style="font-size:13px;font-weight:500;margin-top:4px">{mode_s}</div></div>',unsafe_allow_html=True)
     with c2:
-        nb_s, nb_a = _compteurs()
-        st.markdown(f'<div class="card"><div style="font-size:12px;color:var(--subtext)">Historique</div><div style="font-size:12px;margin-top:4px">{nb_s} sujets · {nb_a} articles</div></div>', unsafe_allow_html=True)
+        h=_historique()
+        nb_s=sum(1 for k in h if not k.startswith("__"))
+        nb_a=sum(len(s.get("articles",[]))for ss in h.values() if isinstance(ss,list) for s in ss if isinstance(s,dict))
+        st.markdown(f'<div class="card"><div style="font-size:12px;color:var(--subtext)">Historique</div><div style="font-size:12px;margin-top:4px">{nb_s} sujets · {nb_a} articles</div></div>',unsafe_allow_html=True)
 
 # ============================================================
 # ROUTING PRINCIPAL
 # ============================================================
-user = st.session_state.get("user")
+user=st.session_state.get("user")
 
+# Réactive le storage à chaque rerun si connecté
 if user and STORAGE_OK:
-    try:
-        storage.set_user(user.id)
-        srv.set_storage_context(storage)
-    except Exception:
-        pass
+    _activer_storage(user.id)
 
 render_sidebar()
 
-page      = st.session_state["page"]
-show_auth = st.session_state.get("show_auth", False)
+page=st.session_state["page"]
 
-if show_auth and AUTH_OK:
-    page_auth()
-elif page == "veille":
-    page_veille()
-elif page == "historique":
-    page_historique()
-elif page == "comparaison":
-    page_comparaison()
-elif page == "auto":
-    page_auto()
-elif page == "config":
-    page_config()
-elif page == "abonnement":
-    page_abonnement()
+# Non connecté → uniquement la page d'accueil/connexion
+if not user:
+    page_accueil()
 else:
-    page_veille()
+    # Connecté → toutes les pages disponibles
+    if   page=="veille":      page_veille()
+    elif page=="historique":  page_historique()
+    elif page=="comparaison": page_comparaison()
+    elif page=="auto":        page_auto()
+    elif page=="config":      page_config()
+    elif page=="abonnement":  page_abonnement()
+    else:                     page_veille()
