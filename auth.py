@@ -1,242 +1,199 @@
 # ============================================================
-# AUTH.PY — Authentification Supabase
-# Tables : users (id, email, is_subscribed, stripe_customer_id, subscription_end)
-#          search_quota (id, user_id, searches_used, last_reset)
+# AUTH.PY — Authentification Supabase (connexion lazy)
 # ============================================================
 
 import os
-from dotenv import load_dotenv
 
-load_dotenv()
+# Connexion lazy — on ne se connecte qu'au premier appel
+_supabase       = None
+_supabase_admin = None
 
-SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
-REDIRECT_URL = os.getenv("SUPABASE_GOOGLE_REDIRECT", "")
+def _get_client():
+    """Client public (auth utilisateur)."""
+    global _supabase
+    if _supabase is None:
+        from supabase import create_client
+        url = os.environ.get("SUPABASE_URL", "")
+        key = os.environ.get("SUPABASE_ANON_KEY", "")
+        if not url or not key:
+            raise RuntimeError("SUPABASE_URL ou SUPABASE_ANON_KEY manquant")
+        _supabase = create_client(url, key)
+    return _supabase
 
-# Nombre de recherches gratuites avant blocage
+def _get_admin():
+    """Client admin (lecture/écriture sans restrictions)."""
+    global _supabase_admin
+    if _supabase_admin is None:
+        from supabase import create_client
+        url = os.environ.get("SUPABASE_URL", "")
+        key = os.environ.get("SUPABASE_SERVICE_KEY", "")
+        if not url or not key:
+            raise RuntimeError("SUPABASE_URL ou SUPABASE_SERVICE_KEY manquant")
+        _supabase_admin = create_client(url, key)
+    return _supabase_admin
+
 RECHERCHES_GRATUITES = 1
 
-# ── Client Supabase ────────────────────────────────────────
-try:
-    from supabase import create_client, Client
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        raise ValueError("SUPABASE_URL ou SUPABASE_KEY manquant dans .env")
-    _supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-except Exception as _e:
-    raise ImportError(f"Impossible d'initialiser Supabase : {_e}")
-
-
 # ============================================================
-# INSCRIPTION
+# INSCRIPTION / CONNEXION
 # ============================================================
+
 def inscrire(email: str, password: str) -> dict:
     try:
-        res = _supabase.auth.sign_up({"email": email, "password": password})
+        res = _get_client().auth.sign_up({"email": email, "password": password})
         if res.user:
-            uid = res.user.id
-            # Insérer dans users
             try:
-                _supabase.table("users").insert({
-                    "id":            uid,
-                    "email":         email,
+                admin = _get_admin()
+                admin.table("users").insert({
+                    "id": res.user.id,
+                    "email": email,
                     "is_subscribed": False,
                 }).execute()
-            except Exception:
-                pass
-            # Insérer dans search_quota
-            try:
-                _supabase.table("search_quota").insert({
-                    "user_id":       uid,
+                admin.table("search_quota").insert({
+                    "user_id": res.user.id,
                     "searches_used": 0,
                 }).execute()
             except Exception:
                 pass
-            return {"ok": True, "message": "Compte créé ! Vérifiez votre email.", "user": res.user}
-        return {"ok": False, "message": "Échec de l'inscription. Réessayez.", "user": None}
+            return {"ok": True, "message": "Compte créé ! Vérifiez votre email."}
+        return {"ok": False, "message": "Erreur lors de la création du compte."}
     except Exception as e:
         msg = str(e)
-        if "already registered" in msg or "already been registered" in msg:
-            return {"ok": False, "message": "Cet email est déjà utilisé.", "user": None}
-        return {"ok": False, "message": f"Erreur : {msg}", "user": None}
+        if "already registered" in msg:
+            return {"ok": False, "message": "Email déjà utilisé."}
+        return {"ok": False, "message": f"Erreur : {msg}"}
 
 
-# ============================================================
-# CONNEXION EMAIL / MOT DE PASSE
-# ============================================================
 def connecter(email: str, password: str) -> dict:
     try:
-        res = _supabase.auth.sign_in_with_password({"email": email, "password": password})
-        if res.user and res.session:
-            _assurer_search_quota(res.user.id)
-            return {"ok": True, "message": "Connecté.", "user": res.user, "session": res.session}
-        return {"ok": False, "message": "Identifiants incorrects.", "user": None, "session": None}
+        res = _get_client().auth.sign_in_with_password({"email": email, "password": password})
+        if res.user:
+            return {"ok": True, "user": res.user, "session": res.session}
+        return {"ok": False, "message": "Identifiants incorrects."}
     except Exception as e:
-        msg = str(e)
-        if "Invalid login" in msg or "invalid_grant" in msg:
-            return {"ok": False, "message": "Email ou mot de passe incorrect.", "user": None, "session": None}
-        if "Email not confirmed" in msg:
-            return {"ok": False, "message": "Confirmez votre email avant de vous connecter.", "user": None, "session": None}
-        return {"ok": False, "message": f"Erreur : {msg}", "user": None, "session": None}
+        return {"ok": False, "message": f"Erreur : {str(e)}"}
 
 
-# ============================================================
-# CONNEXION GOOGLE (OAuth)
-# ============================================================
-def connecter_google() -> str | None:
-    """Retourne l'URL OAuth Google, ou None si non configuré."""
+def connecter_google() -> str:
     try:
-        params = {"provider": "google"}
-        if REDIRECT_URL:
-            params["options"] = {"redirect_to": REDIRECT_URL.rstrip("/") + "/"}
-        res = _supabase.auth.sign_in_with_oauth(params)
-        return res.url if res and res.url else None
+        res = _get_client().auth.sign_in_with_oauth({
+            "provider": "google",
+            "options": {"redirect_to": os.getenv("APP_URL", "http://localhost:8501")}
+        })
+        return res.url
     except Exception:
         return None
 
 
-# ============================================================
-# DÉCONNEXION
-# ============================================================
-def deconnecter() -> None:
+def deconnecter():
     try:
-        _supabase.auth.sign_out()
+        _get_client().auth.sign_out()
     except Exception:
         pass
 
 
-# ============================================================
-# RÉINITIALISATION MOT DE PASSE
-# ============================================================
 def reinitialiser_mot_de_passe(email: str) -> dict:
     try:
-        opts = {}
-        if REDIRECT_URL:
-            opts["redirect_to"] = REDIRECT_URL.rstrip("/") + "/reset"
-        _supabase.auth.reset_password_email(email, opts if opts else None)
-        return {"ok": True, "message": f"Email envoyé à {email}. Vérifiez votre boîte."}
+        _get_client().auth.reset_password_email(email)
+        return {"ok": True, "message": "Email de réinitialisation envoyé."}
     except Exception as e:
-        return {"ok": False, "message": f"Erreur : {e}"}
-
+        return {"ok": False, "message": str(e)}
 
 # ============================================================
-# PROFIL (table users)
+# PROFIL UTILISATEUR
 # ============================================================
+
 def get_profil(user_id: str) -> dict:
-    """Récupère la ligne dans users. Crée si absente."""
     try:
-        res = _supabase.table("users").select("*").eq("id", user_id).single().execute()
+        res = _get_admin().table("users").select("*").eq("id", user_id).single().execute()
         return res.data or {}
     except Exception:
-        try:
-            _supabase.table("users").insert({
-                "id":            user_id,
-                "is_subscribed": False,
-            }).execute()
-        except Exception:
-            pass
-        return {"id": user_id, "is_subscribed": False}
+        return {}
 
 
-# ============================================================
-# ABONNEMENT (table users : is_subscribed, subscription_end)
-# ============================================================
 def est_abonne(user_id: str) -> bool:
-    """Vérifie is_subscribed. Désactive automatiquement si subscription_end dépassé."""
-    if not user_id:
-        return False
+    from datetime import datetime, timezone
     try:
         profil = get_profil(user_id)
-        if not profil.get("is_subscribed", False):
+        if not profil.get("is_subscribed"):
             return False
-        sub_end = profil.get("subscription_end")
-        if sub_end:
-            from datetime import datetime, timezone
-            fin = datetime.fromisoformat(sub_end.replace("Z", "+00:00"))
-            if fin < datetime.now(timezone.utc):
-                _supabase.table("users").update({"is_subscribed": False}).eq("id", user_id).execute()
+        fin = profil.get("subscription_end")
+        if fin:
+            try:
+                fin_dt = datetime.fromisoformat(str(fin).replace("Z", "+00:00"))
+                if fin_dt.tzinfo is None:
+                    fin_dt = fin_dt.replace(tzinfo=timezone.utc)
+                return fin_dt > datetime.now(timezone.utc)
+            except Exception:
                 return False
         return True
     except Exception:
         return False
 
-
-def activer_abonnement(user_id: str, stripe_customer_id: str = "", subscription_end=None) -> bool:
-    try:
-        data = {"is_subscribed": True}
-        if stripe_customer_id:
-            data["stripe_customer_id"] = stripe_customer_id
-        if subscription_end:
-            data["subscription_end"] = subscription_end
-        _supabase.table("users").update(data).eq("id", user_id).execute()
-        return True
-    except Exception:
-        return False
-
-
-def desactiver_abonnement(user_id: str) -> bool:
-    try:
-        _supabase.table("users").update({"is_subscribed": False}).eq("id", user_id).execute()
-        return True
-    except Exception:
-        return False
-
-
 # ============================================================
-# QUOTA (table search_quota)
+# QUOTA RECHERCHES
 # ============================================================
-def _assurer_search_quota(user_id: str) -> None:
-    """Crée la ligne search_quota si elle n'existe pas encore."""
-    try:
-        res = _supabase.table("search_quota").select("id").eq("user_id", user_id).execute()
-        if not res.data:
-            _supabase.table("search_quota").insert({
-                "user_id":       user_id,
-                "searches_used": 0,
-            }).execute()
-    except Exception:
-        pass
-
 
 def get_quota(user_id: str) -> dict:
-    """Retourne {"searches_used": int, "abonne": bool}"""
     try:
-        res = _supabase.table("search_quota").select("*").eq("user_id", user_id).single().execute()
-        quota = res.data or {}
+        res = _get_admin().table("search_quota").select("*").eq("user_id", user_id).single().execute()
+        return res.data or {"searches_used": 0}
     except Exception:
-        quota = {}
-    return {
-        "searches_used": quota.get("searches_used", 0),
-        "abonne":        est_abonne(user_id),
-    }
+        return {"searches_used": 0}
 
 
-def peut_rechercher(user_id: str) -> tuple[bool, str]:
-    """Vérifie si l'utilisateur peut lancer une recherche."""
+def peut_rechercher(user_id: str) -> tuple:
     if est_abonne(user_id):
         return True, ""
     quota = get_quota(user_id)
     used  = quota.get("searches_used", 0)
-    if used < RECHERCHES_GRATUITES:
-        return True, ""
-    return (
-        False,
-        f"Limite gratuite atteinte ({RECHERCHES_GRATUITES} recherche). "
-        "Abonnez-vous pour un accès illimité."
-    )
+    if used >= RECHERCHES_GRATUITES:
+        return False, (
+            f"Vous avez utilisé votre {RECHERCHES_GRATUITES} recherche gratuite. "
+            "Abonnez-vous à 2,99€/mois pour un accès illimité."
+        )
+    return True, ""
 
 
-def incrementer_quota(user_id: str) -> None:
-    """Incrémente searches_used dans search_quota."""
+def incrementer_quota(user_id: str):
     try:
-        res = _supabase.table("search_quota").select("id, searches_used").eq("user_id", user_id).single().execute()
-        if res.data:
-            nouveau = res.data.get("searches_used", 0) + 1
-            _supabase.table("search_quota").update(
-                {"searches_used": nouveau}
-            ).eq("user_id", user_id).execute()
-        else:
-            _supabase.table("search_quota").insert(
-                {"user_id": user_id, "searches_used": 1}
-            ).execute()
+        quota   = get_quota(user_id)
+        nouveau = quota.get("searches_used", 0) + 1
+        _get_admin().table("search_quota").update({
+            "searches_used": nouveau
+        }).eq("user_id", user_id).execute()
     except Exception:
         pass
+
+# ============================================================
+# MISE À JOUR ABONNEMENT (webhook Stripe)
+# ============================================================
+
+def activer_abonnement(stripe_customer_id: str, fin_timestamp: int):
+    from datetime import datetime, timezone
+    fin = datetime.fromtimestamp(fin_timestamp, tz=timezone.utc).isoformat()
+    try:
+        _get_admin().table("users").update({
+            "is_subscribed": True,
+            "subscription_end": fin,
+        }).eq("stripe_customer_id", stripe_customer_id).execute()
+    except Exception as e:
+        print(f"Erreur activation abonnement : {e}")
+
+
+def desactiver_abonnement(stripe_customer_id: str):
+    try:
+        _get_admin().table("users").update({
+            "is_subscribed": False,
+        }).eq("stripe_customer_id", stripe_customer_id).execute()
+    except Exception as e:
+        print(f"Erreur désactivation abonnement : {e}")
+
+
+def lier_stripe(user_id: str, stripe_customer_id: str):
+    try:
+        _get_admin().table("users").update({
+            "stripe_customer_id": stripe_customer_id
+        }).eq("id", user_id).execute()
+    except Exception as e:
+        print(f"Erreur liaison Stripe : {e}")
