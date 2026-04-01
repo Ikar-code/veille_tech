@@ -77,6 +77,7 @@ h3{font-size:14px!important;color:var(--subtext)!important;font-weight:400!impor
 .badge-mauve{background:rgba(203,166,247,.15);color:var(--mauve);border:1px solid var(--mauve);}
 .log-box{background:#0d0d1a;border:1px solid var(--border);border-radius:8px;padding:14px 16px;font-family:'Space Mono',monospace;font-size:12px;color:#a6e3a1;max-height:220px;overflow-y:auto;line-height:1.7;}
 .abonnement-box{background:var(--surface);border:1px solid var(--mauve);border-radius:16px;padding:32px;text-align:center;margin:20px 0;}
+.code-block{background:#0d0d1a;border:1px solid var(--border);border-radius:8px;padding:14px 16px;font-family:'Space Mono',monospace;font-size:12px;color:#a6e3a1;line-height:1.7;overflow-x:auto;white-space:pre;}
 hr{border-color:var(--border)!important;margin:16px 0!important;}
 #MainMenu,footer,.stDeployButton{display:none!important;}
 ::-webkit-scrollbar{width:6px;}
@@ -130,10 +131,8 @@ def _init_state():
         "dernier_log":"",
         "theme_widget_version": 0,
         "theme_ftp": dict(THEME_DEFAULT),
-        # Étape 2 — résultats prêts à publier
-        "recherche_terminee": False,   # True après la recherche, en attente de publication
-        "limite_courante": 10,         # conserve la valeur choisie pour l'étape 2
-        # Résultat de la publication
+        "recherche_terminee": False,
+        "limite_courante": 10,
         "derniere_publication": None,
     }
     for k, v in defaults.items():
@@ -465,7 +464,6 @@ def _render_theme_editor():
         ptitle = st.text_input("Titre de la page", value=th.get("ptitle", "Veille Technologique IA"), key=f"th_ptitle_v{ver}")
         st.session_state["theme_ftp"]["ptitle"] = ptitle
 
-    # Aperçu live
     t = st.session_state["theme_ftp"]
     st.markdown(
         f'<div style="margin-top:12px;padding:16px;background:{t["bg"]};border-radius:{t["rad"]}px;'
@@ -624,9 +622,7 @@ def page_abonnement():
                 st.warning("Paiement Stripe disponible prochainement.")
 
 # ============================================================
-# PAGE VEILLE — 2 étapes distinctes
-# Étape 1 : clic sur ▶ Rechercher → lance uniquement srv.rechercher()
-# Étape 2 : panneau de publication avec les boutons au choix
+# PAGE VEILLE
 # ============================================================
 def page_veille():
     st.markdown("# 🔍 Nouvelle veille")
@@ -654,15 +650,13 @@ def page_veille():
         else:
             st.markdown(f'<div style="margin-bottom:16px;">{_badge("✨ Abonné · Recherches illimitées","mauve")}</div>', unsafe_allow_html=True)
 
-    # ── ÉTAPE 1 : Formulaire de recherche ──────────────────────
     col_form, col_log = st.columns([1, 1], gap="large")
 
     with col_form:
         st.markdown('<div class="card card-accent">', unsafe_allow_html=True)
         sujet  = st.text_area("Sujets de recherche",
                                placeholder="ex: cybersécurité IA, deepfake, LLM Europe",
-                               height=90,
-                               key="sujet_input")
+                               height=90, key="sujet_input")
         c1, c2 = st.columns(2)
         with c1:
             limite = st.number_input("Articles max à résumer", min_value=1, max_value=50, value=10, step=1)
@@ -672,21 +666,17 @@ def page_veille():
         c1, c2 = st.columns(2)
         with c1:
             btn_rechercher = st.button(
-                "🔍 Rechercher",
-                use_container_width=True,
+                "🔍 Rechercher", use_container_width=True,
                 disabled=st.session_state["en_cours"],
-                type="primary",
-                key="btn_rechercher"
-            )
+                type="primary", key="btn_rechercher")
         with c2:
             if st.button("🗑 Réinitialiser", use_container_width=True, key="btn_reset_veille"):
-                st.session_state["logs"]              = []
-                st.session_state["resultats"]         = []
-                st.session_state["recherche_terminee"]= False
+                st.session_state["logs"]               = []
+                st.session_state["resultats"]          = []
+                st.session_state["recherche_terminee"] = False
                 st.session_state["derniere_publication"] = None
                 st.rerun()
 
-        # Liste des articles trouvés (affichée après recherche)
         if st.session_state["resultats"] and not st.session_state["en_cours"]:
             st.markdown("---")
             nb_r = len(st.session_state["resultats"])
@@ -709,7 +699,6 @@ def page_veille():
             if nb_r > 8:
                 st.caption(f"… et {nb_r - 8} autres articles")
 
-    # Journal / animation
     with col_log:
         if st.session_state["en_cours"]:
             sujet_affiche = st.session_state.get("sujet_courant", "…")
@@ -743,7 +732,6 @@ def page_veille():
                 else ["<span style='color:var(--subtext)'>En attente de lancement…</span>"])
             st.markdown(f'<div class="log-box">{log_html}</div>', unsafe_allow_html=True)
 
-    # ── Déclenchement ÉTAPE 1 ──────────────────────────────────
     if btn_rechercher and sujet.strip() and not st.session_state["en_cours"]:
         if AUTH_OK and uid:
             ok_q, msg_q = auth.peut_rechercher(uid)
@@ -751,19 +739,18 @@ def page_veille():
                 st.error(msg_q)
                 return
         st.session_state.update({
-            "en_cours":          True,
-            "resultats":         [],
-            "sujet_courant":     sujet.strip(),
-            "limite_courante":   int(limite),
-            "logs":              [],
-            "dernier_log":       "Initialisation…",
-            "recherche_terminee":False,
+            "en_cours":           True,
+            "resultats":          [],
+            "sujet_courant":      sujet.strip(),
+            "limite_courante":    int(limite),
+            "logs":               [],
+            "dernier_log":        "Initialisation…",
+            "recherche_terminee": False,
             "derniere_publication": None,
         })
         st.rerun()
 
     elif st.session_state["en_cours"] and st.session_state.get("sujet_courant"):
-        # Exécution de la recherche UNIQUEMENT (pas de résumés IA, pas de publication)
         sujet_run = st.session_state["sujet_courant"]
         try:
             resultats = srv.rechercher(sujet_run, callback_statut=_log)
@@ -781,24 +768,17 @@ def page_veille():
     elif btn_rechercher and not sujet.strip():
         st.warning("Entrez au moins un sujet.")
 
-    # ── ÉTAPE 2 : Panneau de publication (visible après recherche) ──
     if st.session_state.get("recherche_terminee") and st.session_state["resultats"] and not st.session_state["en_cours"]:
         _render_panneau_publication(uid, abonne)
 
-    # Éditeur de thème toujours en bas
     if not st.session_state["en_cours"]:
         _render_theme_editor()
 
 
 def _render_panneau_publication(uid, abonne):
-    """
-    Panneau affiché après la recherche.
-    L'utilisateur choisit où publier (WordPress, FTP, ou les deux)
-    et combien d'articles résumer avant publication.
-    """
-    nb_r    = len(st.session_state["resultats"])
-    limite  = st.session_state.get("limite_courante", 10)
-    sujet   = st.session_state.get("sujet_courant", "")
+    nb_r   = len(st.session_state["resultats"])
+    limite = st.session_state.get("limite_courante", 10)
+    sujet  = st.session_state.get("sujet_courant", "")
 
     st.markdown("---")
     st.markdown(
@@ -811,7 +791,6 @@ def _render_panneau_publication(uid, abonne):
         f'Les résumés IA seront générés au moment de la publication.</div>',
         unsafe_allow_html=True)
 
-    # Paramètres de publication
     col_p1, col_p2 = st.columns(2)
     with col_p1:
         nb_articles = st.number_input(
@@ -821,37 +800,21 @@ def _render_panneau_publication(uid, abonne):
             step=1, key="pub_nb_articles")
     with col_p2:
         mode_pub = st.selectbox(
-            "Mode WordPress",
-            ["Mise à jour page", "Créer un post"],
-            key="pub_mode")
+            "Mode WordPress", ["Mise à jour page", "Créer un post"], key="pub_mode")
 
-    # Boutons de publication
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
     col_b1, col_b2, col_b3 = st.columns(3)
 
     with col_b1:
-        btn_wp = st.button(
-            "🌐 Publier sur WordPress",
-            use_container_width=True,
-            key="btn_pub_wp",
-            disabled=st.session_state.get("en_cours_pub", False))
-
+        btn_wp = st.button("🌐 Publier sur WordPress", use_container_width=True,
+                           key="btn_pub_wp", disabled=st.session_state.get("en_cours_pub", False))
     with col_b2:
-        btn_ftp = st.button(
-            "📡 Publier sur FTP",
-            use_container_width=True,
-            key="btn_pub_ftp",
-            disabled=st.session_state.get("en_cours_pub", False))
-
+        btn_ftp = st.button("📡 Publier sur FTP", use_container_width=True,
+                            key="btn_pub_ftp", disabled=st.session_state.get("en_cours_pub", False))
     with col_b3:
-        btn_both = st.button(
-            "🚀 Publier partout",
-            use_container_width=True,
-            type="primary",
-            key="btn_pub_both",
-            disabled=st.session_state.get("en_cours_pub", False))
+        btn_both = st.button("🚀 Publier partout", use_container_width=True, type="primary",
+                             key="btn_pub_both", disabled=st.session_state.get("en_cours_pub", False))
 
-    # Résultat de la dernière publication
     pub = st.session_state.get("derniere_publication")
     if pub:
         col_r1, col_r2 = st.columns(2)
@@ -878,7 +841,6 @@ def _render_panneau_publication(uid, abonne):
                     f'<div style="font-size:12px;color:var(--subtext);margin-top:4px;">{msg}</div>'
                     f'</div>', unsafe_allow_html=True)
 
-    # ── Traitement des clics ──────────────────────────────────
     cible_wp  = btn_wp  or btn_both
     cible_ftp = btn_ftp or btn_both
 
@@ -889,16 +851,11 @@ def _render_panneau_publication(uid, abonne):
         with st.spinner("Génération des résumés IA et publication…"):
             try:
                 if mode_pub == "Mise à jour page" or cible_ftp:
-                    # workflow_publier gère résumés + sauvegarde historique + publication
                     res = srv.workflow_publier(
                         sujet,
                         st.session_state["resultats"],
                         callback_statut=_log,
                         limite=int(nb_articles),
-                        theme_ftp=st.session_state.get("theme_ftp"),
-                        # On contrôle quoi publier via les flags
-                        publier_wp=bool(cible_wp),
-                        publier_ftp=bool(cible_ftp),
                     )
                     if "wordpress" in res:
                         pub_result["ok_wp"]  = res["wordpress"][0]
@@ -906,7 +863,6 @@ def _render_panneau_publication(uid, abonne):
                     if "ftp" in res:
                         pub_result["ok_ftp"]  = res["ftp"][0]
                         pub_result["msg_ftp"] = res["ftp"][1]
-
                 elif mode_pub == "Créer un post" and cible_wp:
                     ok, msg = srv.workflow_creer_post(
                         sujet,
@@ -914,7 +870,6 @@ def _render_panneau_publication(uid, abonne):
                         callback_statut=_log)
                     pub_result["ok_wp"]  = ok
                     pub_result["msg_wp"] = msg
-
             except Exception as e:
                 _log(f"❌ Erreur publication : {e}")
                 pub_result["msg_wp"]  = f"Erreur : {e}"
@@ -923,7 +878,6 @@ def _render_panneau_publication(uid, abonne):
         st.session_state["derniere_publication"] = pub_result
         st.session_state["en_cours_pub"]         = False
         st.rerun()
-
 
 # ============================================================
 # PAGE HISTORIQUE
@@ -952,8 +906,7 @@ def page_historique():
         if sujets_a_supprimer:
             st.markdown(
                 f'<div style="font-size:12px;color:var(--red);margin:6px 0;">'
-                f'⚠️ {len(sujets_a_supprimer)} sujet(s) sélectionné(s)</div>',
-                unsafe_allow_html=True)
+                f'⚠️ {len(sujets_a_supprimer)} sujet(s) sélectionné(s)</div>', unsafe_allow_html=True)
             if st.button(f"🗑 Supprimer {len(sujets_a_supprimer)} sujet(s)",
                          type="secondary", use_container_width=True, key="btn_suppr_sel"):
                 for s in sujets_a_supprimer:
@@ -1057,13 +1010,23 @@ def page_comparaison():
                 st.error(f"Erreur : {e}")
 
 # ============================================================
-# PAGE CONFIG
+# PAGE CONFIG — avec onglet Intégration
 # ============================================================
 def page_config():
     st.markdown("# ⚙️ Configuration")
     st.markdown("---")
     cfg = _cfg()
-    tab_wp, tab_ftp = st.tabs(["🌐 WordPress", "📡 FTP"])
+
+    # Récupère l'URL FTP configurée pour les exemples de code
+    ftp_url = cfg.get("ftp_path", "/htdocs/veille-ia.html")
+    # Tente de reconstruire une URL publique à partir du host FTP
+    ftp_host = cfg.get("ftp_host", "")
+    # URL exemple pour les snippets (on utilise le host si dispo)
+    exemple_url = f"https://{ftp_host}/veille-ia.html" if ftp_host else "https://monsite.com/veille-ia.html"
+
+    tab_wp, tab_ftp, tab_integration = st.tabs(["🌐 WordPress", "📡 FTP", "🔗 Intégration"])
+
+    # ── Onglet WordPress ──────────────────────────────────────
     with tab_wp:
         st.markdown("#### Connexion WordPress")
         wp_base = st.text_input("URL du site", value=cfg.get("wp_base", ""), placeholder="https://monsite.com")
@@ -1082,10 +1045,12 @@ def page_config():
             if st.button("🔌 Tester WP", use_container_width=True):
                 ok, msg = srv.tester_connexion_wp(wp_base, wp_user, wp_pwd)
                 st.success(msg) if ok else st.error(msg)
+
+    # ── Onglet FTP ────────────────────────────────────────────
     with tab_ftp:
         st.markdown("#### Connexion FTP")
-        ftp_host = st.text_input("Hôte FTP", value=cfg.get("ftp_host", ""))
-        c1, c2   = st.columns(2)
+        ftp_host_input = st.text_input("Hôte FTP", value=cfg.get("ftp_host", ""))
+        c1, c2         = st.columns(2)
         with c1:
             ftp_user = st.text_input("Utilisateur FTP", value=cfg.get("ftp_user", ""))
         with c2:
@@ -1094,14 +1059,115 @@ def page_config():
         cs, ct   = st.columns(2)
         with cs:
             if st.button("💾 Sauvegarder FTP", use_container_width=True):
-                cfg.update({"ftp_host": ftp_host, "ftp_user": ftp_user,
+                cfg.update({"ftp_host": ftp_host_input, "ftp_user": ftp_user,
                             "ftp_password": ftp_pwd, "ftp_path": ftp_path})
                 _save_cfg(cfg)
                 st.success("Sauvegardé !")
         with ct:
             if st.button("🔌 Tester FTP", use_container_width=True):
-                ok, msg = srv.tester_connexion_ftp(ftp_host, ftp_user, ftp_pwd)
+                ok, msg = srv.tester_connexion_ftp(ftp_host_input, ftp_user, ftp_pwd)
                 st.success(msg) if ok else st.error(msg)
+
+    # ── Onglet Intégration ────────────────────────────────────
+    with tab_integration:
+        st.markdown("#### 🔗 Intégrer la veille sur une autre page")
+        st.markdown(
+            '<div style="font-size:13px;color:var(--subtext);margin-bottom:20px;">'
+            'Une fois votre veille publiée sur FTP, vous pouvez l\'afficher sur n\'importe quelle page '
+            'web (WordPress, site perso, etc.) en copiant l\'un des snippets ci-dessous.'
+            '</div>', unsafe_allow_html=True)
+
+        # Champ URL personnalisable
+        url_veille = st.text_input(
+            "URL publique de votre veille-ia.html",
+            value=exemple_url,
+            placeholder="https://monsite.com/veille-ia.html",
+            key="integration_url",
+            help="C'est l'URL où votre fichier veille-ia.html est accessible publiquement.")
+
+        st.markdown("---")
+
+        # ── Méthode 1 : iframe responsive ─────────────────────
+        st.markdown(
+            '<div style="font-family:Space Mono;font-size:12px;color:var(--blue);margin-bottom:8px;">'
+            '▶ Méthode 1 — iframe responsive (recommandée)</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div style="font-size:12px;color:var(--subtext);margin-bottom:8px;">'
+            'Collez ce code dans la page ou l\'article WordPress où vous voulez afficher la veille. '
+            'L\'iframe s\'ajuste automatiquement à la hauteur du contenu et ignore le cache.</div>',
+            unsafe_allow_html=True)
+
+        code_iframe = f"""<div id="veille-container"></div>
+<script>
+var url = "{url_veille}?v=" + Date.now();
+document.getElementById("veille-container").innerHTML =
+  '<iframe src="' + url + '" style="width:100%;border:none;" ' +
+  'onload="this.style.height=this.contentDocument.body.scrollHeight+\'px\'"></iframe>';
+</script>"""
+        st.code(code_iframe, language="html")
+
+        st.markdown(
+            '<div style="font-size:11px;color:var(--subtext);margin-top:4px;margin-bottom:20px;">'
+            '💡 Le <code>?v=Date.now()</code> force le rechargement à chaque visite — '
+            'votre lecteur voit toujours la version la plus récente.</div>',
+            unsafe_allow_html=True)
+
+        # ── Méthode 2 : iframe simple ──────────────────────────
+        st.markdown(
+            '<div style="font-family:Space Mono;font-size:12px;color:var(--blue);margin-bottom:8px;">'
+            '▶ Méthode 2 — iframe simple (hauteur fixe)</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div style="font-size:12px;color:var(--subtext);margin-bottom:8px;">'
+            'Version simplifiée si la méthode 1 pose problème. '
+            'Ajustez la hauteur selon votre contenu.</div>',
+            unsafe_allow_html=True)
+
+        code_iframe_simple = f"""<iframe
+  src="{url_veille}?v=TIMESTAMP"
+  style="width:100%; height:1800px; border:none;"
+  loading="lazy">
+</iframe>"""
+        st.code(code_iframe_simple, language="html")
+
+        st.markdown(
+            '<div style="font-size:11px;color:var(--subtext);margin-top:4px;margin-bottom:20px;">'
+            '💡 Remplacez <code>TIMESTAMP</code> par un nombre qui change à chaque mise à jour '
+            '(ex: la date du jour) pour forcer le rechargement.</div>',
+            unsafe_allow_html=True)
+
+        # ── Méthode 3 : lien direct ────────────────────────────
+        st.markdown(
+            '<div style="font-family:Space Mono;font-size:12px;color:var(--blue);margin-bottom:8px;">'
+            '▶ Méthode 3 — lien direct vers la page</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div style="font-size:12px;color:var(--subtext);margin-bottom:8px;">'
+            'La solution la plus simple : un lien ou un bouton qui ouvre la page dans un nouvel onglet.</div>',
+            unsafe_allow_html=True)
+
+        code_lien = f"""<a href="{url_veille}" target="_blank"
+   style="display:inline-block;padding:10px 20px;
+          background:#89b4fa;color:#1e1e2e;
+          border-radius:8px;font-weight:bold;
+          text-decoration:none;">
+  📡 Voir la veille technologique
+</a>"""
+        st.code(code_lien, language="html")
+
+        st.markdown("---")
+
+        # ── Note WordPress ─────────────────────────────────────
+        st.markdown(
+            '<div class="card card-accent" style="padding:14px 16px;">'
+            '<div style="font-size:13px;font-weight:600;color:var(--blue);margin-bottom:8px;">📝 Note WordPress</div>'
+            '<div style="font-size:12px;color:var(--subtext);line-height:1.8;">'
+            'WordPress filtre le HTML par défaut. Pour que les snippets fonctionnent :<br>'
+            '• Utilisez l\'éditeur en mode <strong style="color:var(--text)">HTML / Code source</strong> (pas Gutenberg visuel)<br>'
+            '• Ou installez le plugin <strong style="color:var(--text)">WPCode</strong> pour injecter du HTML/JS proprement<br>'
+            '• Ou ajoutez le code dans un bloc <strong style="color:var(--text)">HTML personnalisé</strong> (Custom HTML block)'
+            '</div></div>',
+            unsafe_allow_html=True)
+
+    # ── Infos stockage ────────────────────────────────────────
     st.markdown("---")
     c1, c2 = st.columns(2)
     with c1:
