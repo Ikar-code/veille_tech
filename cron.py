@@ -2,6 +2,14 @@
 # CRON.PY — Veille automatique (lancé par GitHub Actions)
 # Tourne toutes les heures, envoie emails aux utilisateurs
 # dont l'heure programmée correspond à l'heure actuelle UTC
+#
+# Ce que fait ce cron pour chaque utilisateur :
+#   1. Charge ses sujets depuis Supabase (user_veille_auto)
+#   2. Lance la recherche + résumés IA
+#   3. Sauvegarde dans son historique Supabase
+#   4. Publie sur FTP (si configuré dans sa config)
+#   5. Publie sur WordPress (si configuré)
+#   6. Envoie un email de synthèse
 # ============================================================
 
 import os
@@ -23,7 +31,7 @@ except Exception:
 import serveur as srv
 import storage
 
-GMAIL_USER     = "veille.techno.autobylr@gmail.com"
+GMAIL_USER     = os.environ.get("GMAIL_USER",     "veille.techno.autobylr@gmail.com")
 GMAIL_PASSWORD = os.environ.get("GMAIL_PASSWORD", "pkwe wcbg ntwj sarr")
 
 # ============================================================
@@ -48,7 +56,7 @@ def generer_email_html(sujet: str, articles: list, resume_global: str) -> str:
 
     articles_html = ""
     for a in articles[:10]:
-        dom  = urlparse(a.get("href","")).netloc
+        dom  = urlparse(a.get("href", "")).netloc
         pts  = a.get("resume_ollama", [])
         pts_html = "".join(f"<li>{p}</li>" for p in pts[:3]) if pts else ""
         articles_html += f"""
@@ -78,8 +86,10 @@ def generer_email_html(sujet: str, articles: list, resume_global: str) -> str:
     </div>
 </body></html>"""
 
+
 def envoyer_email(dest: str, sujet_mail: str, html: str) -> bool:
-    if not dest:
+    if not dest or not GMAIL_USER or not GMAIL_PASSWORD:
+        print(f"  Email ignoré (config manquante)")
         return False
     try:
         msg = MIMEMultipart("alternative")
@@ -100,55 +110,87 @@ def envoyer_email(dest: str, sujet_mail: str, html: str) -> bool:
 # ============================================================
 
 def traiter_utilisateur(user_id: str, sujets_str: str, email_dest: str):
-    print(f"\n  Utilisateur : {email_dest}")
-    sous_sujets = [s.strip() for s in sujets_str.split(",") if s.strip()]
+    print(f"\n  Utilisateur : {email_dest} ({user_id[:8]}…)")
 
-    # Active le storage pour cet utilisateur
+    # ── 1. Active le storage pour CET utilisateur ────────────
     storage.set_user(user_id)
     srv.set_storage_context(storage)
 
-    # Patch serveur pour utiliser le storage de cet utilisateur
-    srv.charger_historique     = lambda: storage.charger_historique_utilisateur(user_id)
-    srv.sauvegarder_historique = lambda h: storage.sauvegarder_historique_utilisateur(user_id, h)
-    srv.charger_config         = lambda: storage.charger_config_utilisateur(user_id)
+    # ── 2. Charge sa config (FTP, WP, thème) ────────────────
+    cfg   = storage.charger_config_utilisateur(user_id)
+    theme = None
+    if "theme_ftp" in cfg:
+        try:
+            import json as _json
+            theme = _json.loads(cfg["theme_ftp"])
+        except Exception:
+            theme = None
+
+    sous_sujets = [s.strip() for s in sujets_str.split(",") if s.strip()]
+
+    articles_email_total = []
+    resume_email_total   = []
 
     for sujet in sous_sujets:
         print(f"    Sujet : {sujet}")
         try:
+            # ── 3. Recherche ────────────────────────────────
             resultats = srv.rechercher(sujet, callback_statut=lambda m: print(f"      {m}"))
             if not resultats:
                 print(f"    Aucun résultat.")
                 continue
 
-            # workflow_publier gère résumés IA + sauvegarde historique (fusion)
-            srv.workflow_publier(
-                sujet, resultats,
-                callback_statut=lambda m: print(f"      {m}"),
-                limite=10
-            )
+            print(f"    {len(resultats)} résultats — lancement du workflow…")
 
-            # Récupère ce qui vient d'être sauvegardé
+            # ── 4. workflow_publier :
+            #    - génère les résumés IA
+            #    - sauvegarde dans l'historique Supabase (via storage context)
+            #    - publie sur WordPress si configuré
+            #    - publie sur FTP si configuré (avec le thème de l'utilisateur)
+            #
+            # On passe le thème dans srv via un override temporaire
+            # puis on appelle workflow_publier qui appellera _publier_ftp_avec_historique
+            res = srv.workflow_publier(
+                sujet,
+                resultats,
+                callback_statut=lambda msg: print(f"      {msg}"),
+                limite=int(cfg.get("auto_limite", 10)),
+                theme_ftp=theme,   # nouveau paramètre optionnel
+            )
+            print(f"    WordPress : {res.get('wordpress', (False,'?'))[1]}")
+            print(f"    FTP       : {res.get('ftp',       (False,'?'))[1]}")
+
+            # ── 5. Récupère les articles du jour pour l'email ─
             historique = storage.charger_historique_utilisateur(user_id)
             sessions   = historique.get(sujet.strip().lower(), [])
-            articles   = sessions[0].get("articles", []) if sessions else []
-            resume     = sessions[0].get("resume_global", "") if sessions else ""
-
-            if not articles:
-                print(f"    Pas de nouveaux articles.")
-                continue
-
-            date       = datetime.now().strftime("%d/%m/%Y")
-            html       = generer_email_html(sujet, articles, resume)
-            sujet_mail = f"Veille : {sujet.title()} — {date} ({len(articles)} articles)"
-            ok         = envoyer_email(email_dest, sujet_mail, html)
-            print(f"    Email {'envoyé ✅' if ok else 'ERREUR ❌'} → {email_dest}")
+            if sessions:
+                articles_sujet = sessions[0].get("articles", [])
+                resume_sujet   = sessions[0].get("resume_global", "")
+                articles_email_total.extend(articles_sujet[:5])
+                if resume_sujet and not resume_sujet.startswith("Erreur"):
+                    resume_email_total.append(f"— {sujet.upper()}\n{resume_sujet[:600]}")
 
             time.sleep(5)
 
         except Exception as e:
             print(f"    Erreur : {e}")
 
+    # ── 6. Marque la dernière exécution ──────────────────────
     storage.marquer_execution(user_id)
+
+    # ── 7. Envoie l'email de synthèse ────────────────────────
+    if not articles_email_total:
+        print(f"  Aucun article — email ignoré")
+        return
+
+    date        = datetime.now().strftime("%d/%m/%Y")
+    resume_mail = "\n\n".join(resume_email_total) if resume_email_total else "Voir les articles ci-dessous."
+    html        = generer_email_html(sujets_str, articles_email_total, resume_mail)
+    sujet_mail  = f"Veille IA — {date} ({len(articles_email_total)} articles · {len(sous_sujets)} sujets)"
+
+    ok = envoyer_email(email_dest, sujet_mail, html)
+    print(f"  Email {'✅ envoyé' if ok else '❌ ERREUR'} → {email_dest}")
+
 
 # ============================================================
 # MAIN
@@ -157,17 +199,21 @@ def traiter_utilisateur(user_id: str, sujets_str: str, email_dest: str):
 def main():
     now_utc = datetime.now(timezone.utc)
     heure   = now_utc.hour
-    minute  = 0
+    minute  = 0   # Le cron tourne toutes les heures pile
 
     print(f"\n{'='*50}")
     print(f"Cron Veille IA — {now_utc.strftime('%d/%m/%Y %H:%M')} UTC")
     print(f"Utilisateurs programmés à {heure:02d}h{minute:02d} UTC")
     print(f"{'='*50}")
 
+    if not storage.SUPABASE_OK:
+        print("❌ Supabase indisponible — cron arrêté.")
+        return
+
     utilisateurs = storage.lister_utilisateurs_a_notifier(heure, minute)
 
     if not utilisateurs:
-        print("Aucun utilisateur à notifier.")
+        print("Aucun utilisateur à notifier à cette heure.")
         return
 
     print(f"{len(utilisateurs)} utilisateur(s) à traiter")
@@ -177,11 +223,15 @@ def main():
         sujets  = u["sujets"]
         email   = storage.get_user_email(user_id)
         if not email:
-            print(f"  Email introuvable pour {user_id}, ignoré")
+            print(f"  Email introuvable pour {user_id[:8]}… — ignoré")
+            continue
+        if not sujets or not sujets.strip():
+            print(f"  Aucun sujet configuré pour {email} — ignoré")
             continue
         traiter_utilisateur(user_id, sujets, email)
 
-    print(f"\nCron terminé.")
+    print(f"\nCron terminé — {datetime.now(timezone.utc).strftime('%H:%M')} UTC")
+
 
 if __name__ == "__main__":
     main()

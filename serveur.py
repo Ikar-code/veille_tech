@@ -22,9 +22,6 @@ try:
 except ImportError:
     FEEDPARSER_OK = False
 
-# ============================================================
-# CHEMINS LOCAUX (fallback si pas de storage Supabase)
-# ============================================================
 import os as _os
 
 def _resoudre_racine():
@@ -43,9 +40,6 @@ CONFIG_FILE         = _os.path.join(_APP, "config.json")
 VEILLE_PAGE_ID_FILE = _os.path.join(_APP, "veille_page_id.json")
 HISTORIQUE_FILE     = _os.path.join(_APP, "historique_veille.json")
 
-# ============================================================
-# CONTEXTE STORAGE — injecté via set_storage_context()
-# ============================================================
 _storage_context = None
 
 def set_storage_context(ctx):
@@ -76,9 +70,6 @@ def _sauvegarder_historique_ctx(h):
         except Exception: pass
     sauvegarder_historique_local(h)
 
-# ============================================================
-# GROQ & CONSTANTES
-# ============================================================
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 HEADERS_WEB = {
@@ -844,7 +835,6 @@ def generer_contenu_html(historique, date):
     return contenu
 
 def generer_html_complet(contenu_body, date):
-    """Génère le HTML avec le thème par défaut (Catppuccin sombre)."""
     ts = datetime.now().strftime("%Y%m%d%H%M%S")
     return f"""<!DOCTYPE html>
 <html lang="fr">
@@ -876,11 +866,6 @@ p{{color:gray;font-size:13px;}}
 
 
 def generer_html_complet_theme(contenu_body: str, date: str, theme: dict) -> str:
-    """
-    Génère le HTML avec un thème personnalisé passé depuis l'éditeur de thème.
-    theme = {"bg","surf","ov","txt","sub","brd","blue","grn","yel","red",
-             "font","fs","rad","ptitle"}
-    """
     bg     = theme.get("bg",     "#1e1e2e")
     surf   = theme.get("surf",   "#181825")
     ov     = theme.get("ov",     "#313244")
@@ -888,14 +873,11 @@ def generer_html_complet_theme(contenu_body: str, date: str, theme: dict) -> str
     sub    = theme.get("sub",    "#a6adc8")
     brd    = theme.get("brd",    "#45475a")
     blue   = theme.get("blue",   "#89b4fa")
-    grn    = theme.get("grn",    "#a6e3a1")
-    yel    = theme.get("yel",    "#f9e2af")
-    red    = theme.get("red",    "#f38ba8")
     font   = theme.get("font",   "Arial,sans-serif")
     fs     = theme.get("fs",     "13")
     rad    = theme.get("rad",    "8")
+    yel    = theme.get("yel",    "#f9e2af")
     ptitle = theme.get("ptitle", "Veille Technologique IA")
-
     ts = datetime.now().strftime("%Y%m%d%H%M%S")
     return f"""<!DOCTYPE html>
 <html lang="fr">
@@ -919,16 +901,7 @@ ul{{margin:6px 0 0 0;padding-left:18px;}}
 li{{margin:4px 0;font-size:{fs}px;color:{sub};line-height:1.6;}}
 p{{color:{sub};font-size:{fs}px;}}
 button{{cursor:pointer;background:{ov};color:{txt};border:1px solid {brd};
-        border-radius:{rad}px;padding:10px 18px;font-size:14px;font-weight:bold;
-        width:100%;text-align:left;}}
-.lang-badge{{background:rgba(137,180,250,.15);color:{blue};border:1px solid {blue};
-             padding:2px 8px;border-radius:12px;font-size:10px;}}
-.synth-box{{margin-top:18px;padding:18px;
-            background:linear-gradient(135deg,{bg},{surf});
-            border-left:4px solid {yel};border-radius:{rad}px;}}
-.synth-title{{font-size:14px;font-weight:bold;color:{yel};margin-bottom:14px;}}
-.synth-body{{font-size:{fs}px;color:{txt};}}
-.score-badge{{padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;}}
+        border-radius:{rad}px;padding:10px 18px;font-size:14px;font-weight:bold;width:100%;text-align:left;}}
 </style>
 </head>
 <body>
@@ -959,20 +932,15 @@ def publier_wordpress(contenu, page_id):
         return False, f"Erreur WP : {e}"
 
 # ============================================================
-# PUBLICATION FTP — SANS FUSION, HISTORIQUE LOCAL UNIQUEMENT
+# PUBLICATION FTP
 # ============================================================
 
 def _uploader_ftp(html_final: str, chemin: str = None) -> tuple:
-    """
-    Fonction interne bas niveau : se connecte au FTP et uploade html_final.
-    Retourne (ok, message).
-    """
     ftp_cfg = _ftp_config()
     try:
         ftp = ftplib.FTP()
         ftp.connect(ftp_cfg["host"], 21, timeout=30)
         ftp.login(ftp_cfg["user"], ftp_cfg["password"])
-
         if not chemin:
             racine  = ftp.nlst()
             dossier = "/htdocs"
@@ -982,7 +950,6 @@ def _uploader_ftp(html_final: str, chemin: str = None) -> tuple:
                         dossier = f"/{d}"
                         break
             chemin = ftp_cfg["path"] if ftp_cfg["path"] else f"{dossier}/veille-ia.html"
-
         ftp.storbinary(f"STOR {chemin}", io.BytesIO(html_final.encode("utf-8")))
         ftp.quit()
         return True, f"FTP OK → {chemin}"
@@ -991,34 +958,26 @@ def _uploader_ftp(html_final: str, chemin: str = None) -> tuple:
 
 
 def publier_ftp(html_final: str) -> tuple:
-    """
-    Publie directement le HTML fourni sur le FTP.
-    Aucune fusion — ce qui est passé est ce qui sera mis en ligne.
-    """
     return _uploader_ftp(html_final)
 
 
 def _publier_ftp_avec_historique(contenu_html_ignoré, historique_actuel: dict, theme: dict = None) -> tuple:
     """
-    Publie sur FTP en utilisant UNIQUEMENT l'historique Supabase/local passé en paramètre.
-    Le contenu du FTP existant est complètement ignoré — plus de fusion.
-    Si theme est fourni, utilise generer_html_complet_theme, sinon thème par défaut.
+    Publie l'historique Supabase/local sur FTP.
+    theme optionnel : applique le thème personnalisé de l'utilisateur.
     """
     date_maj = datetime.now().strftime("%d/%m/%Y")
     contenu  = generer_contenu_html(historique_actuel, date_maj)
-
     if theme:
         html_final = generer_html_complet_theme(contenu, date_maj, theme)
     else:
         html_final = generer_html_complet(contenu, date_maj)
-
     ok, msg = _uploader_ftp(html_final)
     if ok:
         nb_sujets   = len([k for k in historique_actuel if not k.startswith("__")])
         nb_sessions = sum(len(v) for v in historique_actuel.values() if isinstance(v, list))
         msg = f"FTP OK — {nb_sujets} sujets, {nb_sessions} sessions"
     return ok, msg
-
 
 # ============================================================
 # CRÉATION DE POST WORDPRESS
@@ -1066,7 +1025,14 @@ def supprimer_anciens_posts():
 # WORKFLOW COMPLET
 # ============================================================
 
-def workflow_publier(sujet, resultats_recherche, callback_statut=None, limite=12):
+def workflow_publier(sujet, resultats_recherche, callback_statut=None,
+                     limite=12, theme_ftp: dict = None):
+    """
+    theme_ftp : thème personnalisé optionnel pour la page FTP.
+                Si None, utilise le thème Catppuccin par défaut.
+                Passé par cron.py (depuis la config Supabase de l'utilisateur)
+                et par app.py (depuis st.session_state["theme_ftp"]).
+    """
     def statut(msg):
         if callback_statut:
             callback_statut(msg)
@@ -1100,7 +1066,6 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None, limite=12
 
     if not nouveaux_articles:
         statut("Aucun nouvel article — historique inchange.")
-        # On republie quand même pour appliquer d'éventuels changements de thème
         contenu      = generer_contenu_html(historique, date)
         html_complet = generer_html_complet(contenu, date)
     else:
@@ -1125,6 +1090,7 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None, limite=12
         else:
             sessions.insert(0, {"date": date, "articles": nouveaux_articles, "resume_global": resume_global})
         historique[sujet] = sessions
+        # ── Sauvegarde dans Supabase (ou local si pas de storage) ──
         _sauvegarder_historique_ctx(historique)
         statut("Generation HTML...")
         contenu      = generer_contenu_html(historique, date)
@@ -1137,9 +1103,9 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None, limite=12
     resultats["wordpress"] = (ok, msg)
 
     if ftp_est_configure():
-        statut("Upload FTP (historique local uniquement)...")
-        # On passe html_complet mais il est ignoré — seul historique compte
-        ok2, msg2 = _publier_ftp_avec_historique(html_complet, historique)
+        statut("Upload FTP...")
+        # Passe le thème utilisateur si disponible
+        ok2, msg2 = _publier_ftp_avec_historique(html_complet, historique, theme_ftp)
         resultats["ftp"] = (ok2, msg2)
     else:
         resultats["ftp"] = (True, "FTP non configure — ignore")
