@@ -1038,13 +1038,20 @@ def supprimer_anciens_posts():
 # WORKFLOW COMPLET
 # ============================================================
 
+# ============================================================
+# PATCH serveur.py
+# Remplace la signature et le bloc de publication final
+# dans la fonction workflow_publier() par ce code.
+# Seule la signature + les 10 dernières lignes changent.
+# ============================================================
+
 def workflow_publier(sujet, resultats_recherche, callback_statut=None,
-                     limite=12, theme_ftp: dict = None):
+                     limite=12, theme_ftp: dict = None,
+                     publier_wp: bool = True, publier_ftp: bool = True):
     """
-    theme_ftp : thème personnalisé optionnel pour la page FTP.
-                Si None, utilise le thème Catppuccin par défaut.
-                Passé par cron.py (depuis la config Supabase de l'utilisateur)
-                et par app.py (depuis st.session_state["theme_ftp"]).
+    publier_wp  : True  → publie sur WordPress
+    publier_ftp : True  → publie sur FTP
+    Les deux peuvent être True simultanément (bouton "Publier partout").
     """
     def statut(msg):
         if callback_statut:
@@ -1066,7 +1073,7 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None,
             continue
         if len(nouveaux_articles) >= nb_max:
             break
-        statut(f"Resume IA {len(nouveaux_articles)+1}/{nb_max} : {r.get('title','')[:45]}...")
+        statut(f"Résumé IA {len(nouveaux_articles)+1}/{nb_max} : {r.get('title','')[:45]}...")
         resume = resumer_article_ollama(r.get("title", ""), href, r.get("body", ""))
         nouveaux_articles.append({
             "title":          r.get("title", ""),
@@ -1078,23 +1085,23 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None,
         time.sleep(4)
 
     if not nouveaux_articles:
-        statut("Aucun nouvel article — historique inchange.")
+        statut("Aucun nouvel article — historique inchangé.")
         contenu      = generer_contenu_html(historique, date)
         html_complet = generer_html_complet(contenu, date)
     else:
         nouveaux_articles = detecter_doublons_contenu(nouveaux_articles, sessions)
-        resume_precedent = ""
+        resume_precedent  = ""
         for s in sessions:
             rg = s.get("resume_global", "")
             if rg and not rg.startswith("Erreur") and not rg.startswith("Aucun"):
                 resume_precedent = rg
                 break
-        statut("Synthese globale...")
+        statut("Synthèse globale…")
         time.sleep(10)
         resume_global = generer_resume_global(sujet, nouveaux_articles)
         if resume_precedent and not resume_global.startswith("Erreur"):
             if SequenceMatcher(None, normaliser(resume_global), normaliser(resume_precedent)).ratio() > 0.85:
-                statut("Synthese similaire — conservee.")
+                statut("Synthèse similaire — conservée.")
                 resume_global = resume_precedent
         session_du_jour = next((s for s in sessions if s.get("date") == date), None)
         if session_du_jour:
@@ -1103,29 +1110,35 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None,
         else:
             sessions.insert(0, {"date": date, "articles": nouveaux_articles, "resume_global": resume_global})
         historique[sujet] = sessions
-        # ── Sauvegarde dans Supabase (ou local si pas de storage) ──
         _sauvegarder_historique_ctx(historique)
-        statut("Generation HTML...")
+        statut("Génération HTML…")
         contenu      = generer_contenu_html(historique, date)
         html_complet = generer_html_complet(contenu, date)
 
-    resultats = {}
-    page_id   = obtenir_ou_creer_page()
-    statut("Publication WordPress...")
-    ok, msg = publier_wordpress(contenu, page_id)
-    resultats["wordpress"] = (ok, msg)
+    resultats_pub = {}
 
-    if ftp_est_configure():
-        statut("Upload FTP...")
-        # Passe le thème utilisateur si disponible
-        ok2, msg2 = _publier_ftp_avec_historique(html_complet, historique, theme_ftp)
-        resultats["ftp"] = (ok2, msg2)
+    # ── WordPress ──
+    if publier_wp:
+        page_id = obtenir_ou_creer_page()
+        statut("Publication WordPress…")
+        ok, msg = publier_wordpress(contenu, page_id)
+        resultats_pub["wordpress"] = (ok, msg)
     else:
-        resultats["ftp"] = (True, "FTP non configure — ignore")
+        resultats_pub["wordpress"] = (True, "WordPress ignoré (non sélectionné)")
 
-    statut("Publication terminee !")
-    return resultats
+    # ── FTP ──
+    if publier_ftp:
+        if ftp_est_configure():
+            statut("Upload FTP…")
+            ok2, msg2 = _publier_ftp_avec_historique(html_complet, historique, theme_ftp)
+            resultats_pub["ftp"] = (ok2, msg2)
+        else:
+            resultats_pub["ftp"] = (False, "FTP non configuré — allez dans ⚙️ Configuration")
+    else:
+        resultats_pub["ftp"] = (True, "FTP ignoré (non sélectionné)")
 
+    statut("Publication terminée !")
+    return resultats_pub
 
 def workflow_creer_post(sujet, resultats_recherche, callback_statut=None):
     def statut(msg):

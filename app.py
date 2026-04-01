@@ -104,6 +104,7 @@ hr{border-color:var(--border)!important;margin:16px 0!important;}
 .typing-dots span{display:inline-block;width:6px;height:6px;background:var(--blue);border-radius:50%;margin:0 2px;animation:dot-blink 1.2s infinite;}
 .typing-dots span:nth-child(2){animation-delay:.2s}.typing-dots span:nth-child(3){animation-delay:.4s}
 .launch-status{font-family:'Space Mono',monospace;font-size:12px;color:var(--green);margin-top:8px;min-height:20px;}
+.pub-panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-top:20px;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -124,14 +125,16 @@ THEME_DEFAULT = {
 def _init_state():
     defaults = {
         "resultats":[],"sujet_courant":"","logs":[],
-        "en_cours":False,"page":"accueil",
+        "en_cours":False,"en_cours_pub":False,"page":"accueil",
         "user":None,"session":None,"profil":{},
         "dernier_log":"",
         "theme_widget_version": 0,
         "theme_ftp": dict(THEME_DEFAULT),
-        # Résultats de la dernière publication (pour le panneau de confirmation)
-        "derniere_publication": None,  # dict {ok_wp, msg_wp, ok_ftp, msg_ftp, date}
-        "pub_confirmee": False,        # True si l'utilisateur a cliqué "Confirmer envoi"
+        # Étape 2 — résultats prêts à publier
+        "recherche_terminee": False,   # True après la recherche, en attente de publication
+        "limite_courante": 10,         # conserve la valeur choisie pour l'étape 2
+        # Résultat de la publication
+        "derniere_publication": None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -225,89 +228,6 @@ def _appliquer_theme(valeurs: dict):
     st.session_state["theme_widget_version"] += 1
 
 # ============================================================
-# RECONNEXION AUTOMATIQUE — via Supabase refresh token
-# FIX : le système cookie JS ne fonctionnait pas car les query_params
-# sont effacés à chaque rerun Streamlit avant que le JS puisse s'exécuter.
-# Solution fiable : stocker le refresh_token Supabase dans st.session_state
-# (il y est déjà via res["session"]) et s'en servir si la session expire.
-# Pour la persistance entre onglets/fermetures, on utilise localStorage via
-# un composant HTML + query_param en sens unique (lecture au premier chargement).
-# ============================================================
-
-def _inject_localstorage_reader():
-    """
-    Lit le refresh_token stocké dans localStorage et l'injecte dans
-    l'URL comme query param au tout premier chargement (avant tout rerun).
-    Streamlit le lira via st.query_params avant de l'effacer.
-    """
-    st.markdown("""
-    <script>
-    (function() {
-        const KEY = 'veille_rt';
-        const params = new URLSearchParams(window.location.search);
-        // Si déjà présent dans l'URL, ne rien faire (évite boucle infinie)
-        if (params.get('_rt')) return;
-        const rt = localStorage.getItem(KEY);
-        if (rt) {
-            const url = new URL(window.location.href);
-            url.searchParams.set('_rt', rt);
-            window.history.replaceState(null, '', url.toString());
-            window.location.reload();
-        }
-    })();
-    </script>
-    """, unsafe_allow_html=True)
-
-def _save_refresh_token_js(refresh_token: str):
-    """Stocke le refresh_token dans localStorage (survit aux fermetures d'onglet)."""
-    st.markdown(f"""
-    <script>
-    localStorage.setItem('veille_rt', {json.dumps(refresh_token)});
-    </script>
-    """, unsafe_allow_html=True)
-
-def _clear_refresh_token_js():
-    """Efface le refresh_token du localStorage à la déconnexion."""
-    st.markdown("""
-    <script>
-    localStorage.removeItem('veille_rt');
-    </script>
-    """, unsafe_allow_html=True)
-
-def _check_auto_login():
-    """
-    Tente une reconnexion automatique via le refresh_token passé en query param.
-    S'exécute une seule fois au chargement (quand user est None).
-    """
-    if not AUTH_OK:
-        return
-    if st.session_state.get("user"):
-        return
-
-    rt = st.query_params.get("_rt", "")
-    if not rt:
-        return
-
-    # Efface immédiatement le param de l'URL (ne pas le laisser visible)
-    st.query_params.clear()
-
-    try:
-        res = auth.connecter_refresh_token(rt)
-        if res and res.get("ok"):
-            st.session_state["user"]    = res["user"]
-            st.session_state["session"] = res["session"]
-            st.session_state["profil"]  = auth.get_profil(res["user"].id)
-            st.session_state["page"]    = "veille"
-            _activer_storage(res["user"].id)
-            # Renouvelle le refresh_token dans localStorage
-            new_rt = getattr(res.get("session"), "refresh_token", None)
-            if new_rt:
-                _save_refresh_token_js(new_rt)
-            st.rerun()
-    except Exception:
-        pass
-
-# ============================================================
 # SIDEBAR
 # ============================================================
 def render_sidebar():
@@ -364,11 +284,10 @@ def render_sidebar():
                         storage.set_user(None)
                     except Exception:
                         pass
-                _clear_refresh_token_js()
                 st.session_state.update({
                     "user": None, "session": None, "profil": {},
                     "page": "accueil", "dernier_log": "",
-                    "derniere_publication": None, "pub_confirmee": False,
+                    "recherche_terminee": False, "derniere_publication": None,
                 })
                 st.rerun()
         else:
@@ -409,19 +328,7 @@ def page_accueil():
             email = st.text_input("Email", key="login_email", placeholder="votre@email.com")
             pwd   = st.text_input("Mot de passe", type="password", key="login_pwd")
 
-            col_btn, col_trust = st.columns([1, 1])
-            with col_btn:
-                btn_login = st.button("Se connecter", use_container_width=True,
-                                      type="primary", key="btn_login")
-            with col_trust:
-                # FIX : "Rester connecté" utilise maintenant le refresh_token
-                # stocké dans localStorage — fonctionne réellement entre sessions
-                faire_confiance = st.checkbox(
-                    "Rester connecté",
-                    value=False, key="cb_trust",
-                    help="Mémorise votre connexion pendant 30 jours sur cet appareil (localStorage)")
-
-            if btn_login:
+            if st.button("Se connecter", use_container_width=True, type="primary", key="btn_login"):
                 if not email or not pwd:
                     st.error("Remplissez tous les champs.")
                 else:
@@ -433,12 +340,6 @@ def page_accueil():
                         st.session_state["profil"]  = auth.get_profil(res["user"].id)
                         st.session_state["page"]    = "veille"
                         _activer_storage(res["user"].id)
-                        if faire_confiance:
-                            # Stocke le refresh_token Supabase dans localStorage
-                            rt = getattr(res.get("session"), "refresh_token", None)
-                            if rt:
-                                _save_refresh_token_js(rt)
-                                st.toast("🔒 Connexion mémorisée pendant 30 jours", icon="✅")
                         st.rerun()
                     else:
                         st.error(res["message"])
@@ -489,117 +390,6 @@ def page_accueil():
                         st.info("Vérifiez votre email puis connectez-vous.")
                     else:
                         st.error(res["message"])
-
-# ============================================================
-# PANNEAU DE CONFIRMATION DE PUBLICATION
-# Affiché dans page_veille() après une publication réussie
-# ============================================================
-def _render_panneau_publication(pub: dict):
-    """
-    Affiche un récapitulatif de la dernière publication avec :
-    - Statut WordPress
-    - Statut FTP + lien vers la page publiée
-    - Bouton "Voir la page" si FTP OK
-    - Bouton "Republier uniquement sur FTP" (sans relancer la veille)
-    - Bouton "Republier sur WordPress" (sans relancer la veille)
-    """
-    ok_wp  = pub.get("ok_wp", False)
-    msg_wp = pub.get("msg_wp", "")
-    ok_ftp = pub.get("ok_ftp", False)
-    msg_ftp= pub.get("msg_ftp", "")
-    date   = pub.get("date", "")
-    url_ftp= pub.get("url_ftp", "")  # URL publique de la page si dispo
-
-    st.markdown("---")
-    st.markdown(
-        '<div style="font-family:Space Mono;font-size:13px;color:var(--blue);margin-bottom:12px;">'
-        '📡 Résultat de la dernière publication</div>',
-        unsafe_allow_html=True)
-
-    col_wp, col_ftp = st.columns(2)
-
-    with col_wp:
-        icone = "✅" if ok_wp else "❌"
-        couleur = "var(--green)" if ok_wp else "var(--red)"
-        st.markdown(
-            f'<div class="card" style="border-left:3px solid {couleur};padding:14px 16px;">'
-            f'<div style="font-size:12px;font-weight:600;color:{couleur};margin-bottom:6px;">{icone} WordPress</div>'
-            f'<div style="font-size:12px;color:var(--subtext);">{msg_wp}</div>'
-            f'</div>', unsafe_allow_html=True)
-
-    with col_ftp:
-        icone = "✅" if ok_ftp else "❌"
-        couleur = "var(--green)" if ok_ftp else "var(--red)"
-        st.markdown(
-            f'<div class="card" style="border-left:3px solid {couleur};padding:14px 16px;">'
-            f'<div style="font-size:12px;font-weight:600;color:{couleur};margin-bottom:6px;">{icone} FTP / Page web</div>'
-            f'<div style="font-size:12px;color:var(--subtext);">{msg_ftp}</div>'
-            f'</div>', unsafe_allow_html=True)
-
-    # Affiche l'URL publique si la config FTP a une URL configurée
-    cfg = _cfg()
-    url_publique = cfg.get("url_publique", "").strip()
-    if ok_ftp and url_publique:
-        st.markdown(
-            f'<div style="margin:8px 0 16px 0;">'
-            f'<a href="{url_publique}" target="_blank" '
-            f'style="color:var(--blue);font-size:13px;font-weight:500;">'
-            f'🌐 Voir la page publiée →</a>'
-            f'</div>', unsafe_allow_html=True)
-
-    # Boutons de republication manuelle (sans relancer toute la veille)
-    st.markdown(
-        '<div style="font-size:12px;color:var(--subtext);margin:8px 0 12px 0;">'
-        'Vous pouvez republier indépendamment sans relancer la recherche.</div>',
-        unsafe_allow_html=True)
-
-    col_b1, col_b2, col_b3 = st.columns(3)
-
-    with col_b1:
-        if st.button("📡 Republier sur FTP", use_container_width=True, key="btn_repub_ftp"):
-            if srv.ftp_est_configure():
-                with st.spinner("Upload FTP…"):
-                    try:
-                        h = _historique()
-                        ok, msg = srv._publier_ftp_avec_historique(
-                            None, h, st.session_state.get("theme_ftp"))
-                        if ok:
-                            st.success(f"✅ {msg}")
-                            st.session_state["derniere_publication"]["ok_ftp"]  = ok
-                            st.session_state["derniere_publication"]["msg_ftp"] = msg
-                        else:
-                            st.error(msg)
-                    except Exception as e:
-                        st.error(f"Erreur : {e}")
-            else:
-                st.warning("FTP non configuré — allez dans ⚙️ Configuration.")
-
-    with col_b2:
-        if st.button("🌐 Republier sur WordPress", use_container_width=True, key="btn_repub_wp"):
-            base = srv._wp_base()
-            if base:
-                with st.spinner("Publication WordPress…"):
-                    try:
-                        h       = _historique()
-                        date_ma = datetime.now().strftime("%d/%m/%Y")
-                        contenu = srv.generer_contenu_html(h, date_ma)
-                        page_id = srv.obtenir_ou_creer_page()
-                        ok, msg = srv.publier_wordpress(contenu, page_id)
-                        if ok:
-                            st.success(f"✅ {msg}")
-                            st.session_state["derniere_publication"]["ok_wp"]  = ok
-                            st.session_state["derniere_publication"]["msg_wp"] = msg
-                        else:
-                            st.error(msg)
-                    except Exception as e:
-                        st.error(f"Erreur : {e}")
-            else:
-                st.warning("WordPress non configuré — allez dans ⚙️ Configuration.")
-
-    with col_b3:
-        if st.button("✖ Fermer", use_container_width=True, key="btn_fermer_pub"):
-            st.session_state["derniere_publication"] = None
-            st.rerun()
 
 # ============================================================
 # ÉDITEUR DE THÈME FTP
@@ -702,8 +492,7 @@ def _render_theme_editor():
                 with st.spinner("Regénération et upload FTP…"):
                     try:
                         h = _historique()
-                        ok, msg = srv._publier_ftp_avec_historique(
-                            None, h, st.session_state["theme_ftp"])
+                        ok, msg = srv._publier_ftp_avec_historique(None, h, st.session_state["theme_ftp"])
                         if ok:
                             st.success(f"✅ {msg}")
                         else:
@@ -835,11 +624,13 @@ def page_abonnement():
                 st.warning("Paiement Stripe disponible prochainement.")
 
 # ============================================================
-# PAGE VEILLE
+# PAGE VEILLE — 2 étapes distinctes
+# Étape 1 : clic sur ▶ Rechercher → lance uniquement srv.rechercher()
+# Étape 2 : panneau de publication avec les boutons au choix
 # ============================================================
 def page_veille():
     st.markdown("# 🔍 Nouvelle veille")
-    st.markdown("### Recherche, scoring et publication automatique")
+    st.markdown("### Recherche, scoring et publication")
     st.markdown("---")
 
     uid    = _user_id()
@@ -863,46 +654,62 @@ def page_veille():
         else:
             st.markdown(f'<div style="margin-bottom:16px;">{_badge("✨ Abonné · Recherches illimitées","mauve")}</div>', unsafe_allow_html=True)
 
+    # ── ÉTAPE 1 : Formulaire de recherche ──────────────────────
     col_form, col_log = st.columns([1, 1], gap="large")
+
     with col_form:
         st.markdown('<div class="card card-accent">', unsafe_allow_html=True)
-        sujet  = st.text_area("Sujets de recherche", placeholder="ex: cybersécurité IA, deepfake, LLM Europe", height=90)
+        sujet  = st.text_area("Sujets de recherche",
+                               placeholder="ex: cybersécurité IA, deepfake, LLM Europe",
+                               height=90,
+                               key="sujet_input")
         c1, c2 = st.columns(2)
         with c1:
-            limite = st.number_input("Articles max", min_value=1, max_value=50, value=10, step=1)
-        with c2:
-            mode = st.selectbox("Mode", ["Mise à jour page", "Créer un post"])
+            limite = st.number_input("Articles max à résumer", min_value=1, max_value=50, value=10, step=1)
         st.markdown("</div>", unsafe_allow_html=True)
         st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
         c1, c2 = st.columns(2)
         with c1:
-            lancer = st.button("▶ Lancer", use_container_width=True,
-                               disabled=st.session_state["en_cours"], type="primary")
+            btn_rechercher = st.button(
+                "🔍 Rechercher",
+                use_container_width=True,
+                disabled=st.session_state["en_cours"],
+                type="primary",
+                key="btn_rechercher"
+            )
         with c2:
-            if st.button("🗑 Logs", use_container_width=True):
-                st.session_state["logs"] = []
+            if st.button("🗑 Réinitialiser", use_container_width=True, key="btn_reset_veille"):
+                st.session_state["logs"]              = []
+                st.session_state["resultats"]         = []
+                st.session_state["recherche_terminee"]= False
+                st.session_state["derniere_publication"] = None
                 st.rerun()
 
+        # Liste des articles trouvés (affichée après recherche)
         if st.session_state["resultats"] and not st.session_state["en_cours"]:
             st.markdown("---")
             nb_r = len(st.session_state["resultats"])
             st.markdown(
                 f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">'
                 f'<span style="font-family:Space Mono;font-size:13px;">Résultats</span>'
-                f'{_badge(f"{nb_r} articles","green")}</div>',
+                f'{_badge(f"{nb_r} articles trouvés","green")}</div>',
                 unsafe_allow_html=True)
             for r in st.session_state["resultats"][:8]:
                 dom   = urlparse(r.get("href", "")).netloc
                 score = r.get("score", 0)
                 c     = "green" if score >= 80 else "yellow" if score >= 50 else "red"
                 st.markdown(
-                    f'<div class="card" style="padding:12px 16px;margin-bottom:6px;">'
-                    f'<div style="font-size:13px;font-weight:500;margin-bottom:4px;">{r.get("title","")[:72]}…</div>'
+                    f'<div class="card" style="padding:10px 14px;margin-bottom:6px;">'
+                    f'<div style="font-size:13px;font-weight:500;margin-bottom:3px;">{r.get("title","")[:72]}…</div>'
                     f'<div style="display:flex;gap:8px;">'
                     f'<span style="font-size:11px;color:var(--subtext)">{dom}</span>'
                     f'{_badge(f"score {score}",c)}</div></div>',
                     unsafe_allow_html=True)
+            if nb_r > 8:
+                st.caption(f"… et {nb_r - 8} autres articles")
 
+    # Journal / animation
     with col_log:
         if st.session_state["en_cours"]:
             sujet_affiche = st.session_state.get("sujet_courant", "…")
@@ -914,13 +721,13 @@ def page_veille():
                     <span class="launch-icon">🔭</span>
                     <div class="pulse-ring"></div><div class="pulse-ring"></div><div class="pulse-ring"></div>
                 </div>
-                <div class="launch-title">VEILLE EN COURS</div>
+                <div class="launch-title">RECHERCHE EN COURS</div>
                 <div class="launch-subject">« {sujet_affiche} »</div>
                 <div class="launch-steps">
-                    <div class="launch-step"><span class="step-icon">🔍</span><span class="step-label">Recherche</span></div>
+                    <div class="launch-step"><span class="step-icon">🔍</span><span class="step-label">DuckDuckGo</span></div>
+                    <div class="launch-step"><span class="step-icon">📡</span><span class="step-label">Flux RSS</span></div>
                     <div class="launch-step"><span class="step-icon">⚙️</span><span class="step-label">Scoring</span></div>
-                    <div class="launch-step"><span class="step-icon">🤖</span><span class="step-label">Résumés IA</span></div>
-                    <div class="launch-step"><span class="step-icon">📡</span><span class="step-label">Publication</span></div>
+                    <div class="launch-step"><span class="step-icon">🧹</span><span class="step-label">Dédup.</span></div>
                 </div>
                 <div class="typing-dots"><span></span><span></span><span></span></div>
                 <div class="launch-status">{dernier_log}</div>
@@ -936,71 +743,187 @@ def page_veille():
                 else ["<span style='color:var(--subtext)'>En attente de lancement…</span>"])
             st.markdown(f'<div class="log-box">{log_html}</div>', unsafe_allow_html=True)
 
-    # ── Lancement ──
-    if lancer and sujet.strip() and not st.session_state["en_cours"]:
+    # ── Déclenchement ÉTAPE 1 ──────────────────────────────────
+    if btn_rechercher and sujet.strip() and not st.session_state["en_cours"]:
         if AUTH_OK and uid:
             ok_q, msg_q = auth.peut_rechercher(uid)
             if not ok_q:
                 st.error(msg_q)
                 return
         st.session_state.update({
-            "en_cours": True, "resultats": [],
-            "sujet_courant": sujet.strip(), "logs": [],
-            "dernier_log": "Initialisation…",
+            "en_cours":          True,
+            "resultats":         [],
+            "sujet_courant":     sujet.strip(),
+            "limite_courante":   int(limite),
+            "logs":              [],
+            "dernier_log":       "Initialisation…",
+            "recherche_terminee":False,
             "derniere_publication": None,
         })
         st.rerun()
 
     elif st.session_state["en_cours"] and st.session_state.get("sujet_courant"):
+        # Exécution de la recherche UNIQUEMENT (pas de résumés IA, pas de publication)
         sujet_run = st.session_state["sujet_courant"]
-        pub = {"ok_wp": False, "msg_wp": "Non publié", "ok_ftp": False, "msg_ftp": "Non publié",
-               "date": datetime.now().strftime("%d/%m/%Y %H:%M")}
         try:
             resultats = srv.rechercher(sujet_run, callback_statut=_log)
             st.session_state["resultats"] = resultats
-            _log(f"✅ {len(resultats)} résultats")
+            _log(f"✅ {len(resultats)} résultats trouvés — prêt à publier")
             if AUTH_OK and uid and not abonne:
                 auth.incrementer_quota(uid)
-            if mode == "Mise à jour page":
-                res = srv.workflow_publier(
-                    sujet_run, resultats,
-                    callback_statut=_log,
-                    limite=int(limite),
-                    theme_ftp=st.session_state.get("theme_ftp")
-                )
-                for canal, (ok, msg) in res.items():
-                    _log(f"{'✅' if ok else '❌'} {canal.upper()} : {msg}")
-                # Stocke les résultats pour le panneau de confirmation
-                if "wordpress" in res:
-                    pub["ok_wp"]  = res["wordpress"][0]
-                    pub["msg_wp"] = res["wordpress"][1]
-                if "ftp" in res:
-                    pub["ok_ftp"]  = res["ftp"][0]
-                    pub["msg_ftp"] = res["ftp"][1]
-            else:
-                ok, msg = srv.workflow_creer_post(sujet_run, resultats[:int(limite)], callback_statut=_log)
-                _log(f"{'✅' if ok else '❌'} Post : {msg}")
-                pub["ok_wp"]  = ok
-                pub["msg_wp"] = msg
         except Exception as e:
             _log(f"❌ Erreur : {e}")
-            pub["msg_wp"] = f"Erreur : {e}"
-
         st.session_state["en_cours"]           = False
         st.session_state["dernier_log"]        = ""
-        st.session_state["derniere_publication"] = pub
+        st.session_state["recherche_terminee"] = True
         st.rerun()
 
-    elif lancer and not sujet.strip():
+    elif btn_rechercher and not sujet.strip():
         st.warning("Entrez au moins un sujet.")
 
-    # ── Panneau de confirmation de publication ──
+    # ── ÉTAPE 2 : Panneau de publication (visible après recherche) ──
+    if st.session_state.get("recherche_terminee") and st.session_state["resultats"] and not st.session_state["en_cours"]:
+        _render_panneau_publication(uid, abonne)
+
+    # Éditeur de thème toujours en bas
     if not st.session_state["en_cours"]:
-        pub = st.session_state.get("derniere_publication")
-        if pub:
-            _render_panneau_publication(pub)
-        # Éditeur de thème toujours disponible en bas
         _render_theme_editor()
+
+
+def _render_panneau_publication(uid, abonne):
+    """
+    Panneau affiché après la recherche.
+    L'utilisateur choisit où publier (WordPress, FTP, ou les deux)
+    et combien d'articles résumer avant publication.
+    """
+    nb_r    = len(st.session_state["resultats"])
+    limite  = st.session_state.get("limite_courante", 10)
+    sujet   = st.session_state.get("sujet_courant", "")
+
+    st.markdown("---")
+    st.markdown(
+        '<div style="font-family:Space Mono;font-size:14px;color:var(--green);margin-bottom:4px;">'
+        '✅ Recherche terminée — choisissez où publier</div>',
+        unsafe_allow_html=True)
+    st.markdown(
+        f'<div style="font-size:12px;color:var(--subtext);margin-bottom:16px;">'
+        f'{nb_r} articles trouvés pour <strong style="color:var(--text)">{sujet}</strong>. '
+        f'Les résumés IA seront générés au moment de la publication.</div>',
+        unsafe_allow_html=True)
+
+    # Paramètres de publication
+    col_p1, col_p2 = st.columns(2)
+    with col_p1:
+        nb_articles = st.number_input(
+            "Articles à résumer et publier",
+            min_value=1, max_value=min(nb_r, 50),
+            value=min(limite, nb_r),
+            step=1, key="pub_nb_articles")
+    with col_p2:
+        mode_pub = st.selectbox(
+            "Mode WordPress",
+            ["Mise à jour page", "Créer un post"],
+            key="pub_mode")
+
+    # Boutons de publication
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    col_b1, col_b2, col_b3 = st.columns(3)
+
+    with col_b1:
+        btn_wp = st.button(
+            "🌐 Publier sur WordPress",
+            use_container_width=True,
+            key="btn_pub_wp",
+            disabled=st.session_state.get("en_cours_pub", False))
+
+    with col_b2:
+        btn_ftp = st.button(
+            "📡 Publier sur FTP",
+            use_container_width=True,
+            key="btn_pub_ftp",
+            disabled=st.session_state.get("en_cours_pub", False))
+
+    with col_b3:
+        btn_both = st.button(
+            "🚀 Publier partout",
+            use_container_width=True,
+            type="primary",
+            key="btn_pub_both",
+            disabled=st.session_state.get("en_cours_pub", False))
+
+    # Résultat de la dernière publication
+    pub = st.session_state.get("derniere_publication")
+    if pub:
+        col_r1, col_r2 = st.columns(2)
+        with col_r1:
+            ok  = pub.get("ok_wp")
+            msg = pub.get("msg_wp", "")
+            if ok is not None:
+                ic = "✅" if ok else "❌"
+                cl = "var(--green)" if ok else "var(--red)"
+                st.markdown(
+                    f'<div class="card" style="border-left:3px solid {cl};padding:12px 14px;margin-top:8px;">'
+                    f'<div style="font-size:12px;font-weight:600;color:{cl};">{ic} WordPress</div>'
+                    f'<div style="font-size:12px;color:var(--subtext);margin-top:4px;">{msg}</div>'
+                    f'</div>', unsafe_allow_html=True)
+        with col_r2:
+            ok  = pub.get("ok_ftp")
+            msg = pub.get("msg_ftp", "")
+            if ok is not None:
+                ic = "✅" if ok else "❌"
+                cl = "var(--green)" if ok else "var(--red)"
+                st.markdown(
+                    f'<div class="card" style="border-left:3px solid {cl};padding:12px 14px;margin-top:8px;">'
+                    f'<div style="font-size:12px;font-weight:600;color:{cl};">{ic} FTP / Page web</div>'
+                    f'<div style="font-size:12px;color:var(--subtext);margin-top:4px;">{msg}</div>'
+                    f'</div>', unsafe_allow_html=True)
+
+    # ── Traitement des clics ──────────────────────────────────
+    cible_wp  = btn_wp  or btn_both
+    cible_ftp = btn_ftp or btn_both
+
+    if (cible_wp or cible_ftp) and not st.session_state.get("en_cours_pub", False):
+        st.session_state["en_cours_pub"] = True
+        pub_result = {"ok_wp": None, "msg_wp": "", "ok_ftp": None, "msg_ftp": ""}
+
+        with st.spinner("Génération des résumés IA et publication…"):
+            try:
+                if mode_pub == "Mise à jour page" or cible_ftp:
+                    # workflow_publier gère résumés + sauvegarde historique + publication
+                    res = srv.workflow_publier(
+                        sujet,
+                        st.session_state["resultats"],
+                        callback_statut=_log,
+                        limite=int(nb_articles),
+                        theme_ftp=st.session_state.get("theme_ftp"),
+                        # On contrôle quoi publier via les flags
+                        publier_wp=bool(cible_wp),
+                        publier_ftp=bool(cible_ftp),
+                    )
+                    if "wordpress" in res:
+                        pub_result["ok_wp"]  = res["wordpress"][0]
+                        pub_result["msg_wp"] = res["wordpress"][1]
+                    if "ftp" in res:
+                        pub_result["ok_ftp"]  = res["ftp"][0]
+                        pub_result["msg_ftp"] = res["ftp"][1]
+
+                elif mode_pub == "Créer un post" and cible_wp:
+                    ok, msg = srv.workflow_creer_post(
+                        sujet,
+                        st.session_state["resultats"][:int(nb_articles)],
+                        callback_statut=_log)
+                    pub_result["ok_wp"]  = ok
+                    pub_result["msg_wp"] = msg
+
+            except Exception as e:
+                _log(f"❌ Erreur publication : {e}")
+                pub_result["msg_wp"]  = f"Erreur : {e}"
+                pub_result["msg_ftp"] = f"Erreur : {e}"
+
+        st.session_state["derniere_publication"] = pub_result
+        st.session_state["en_cours_pub"]         = False
+        st.rerun()
+
 
 # ============================================================
 # PAGE HISTORIQUE
@@ -1149,7 +1072,7 @@ def page_config():
             wp_user = st.text_input("Identifiant", value=cfg.get("wp_user", ""))
         with c2:
             wp_pwd = st.text_input("Mot de passe app", value=cfg.get("wp_password", ""), type="password")
-        cs, ct  = st.columns(2)
+        cs, ct = st.columns(2)
         with cs:
             if st.button("💾 Sauvegarder", use_container_width=True):
                 cfg.update({"wp_base": wp_base, "wp_user": wp_user, "wp_password": wp_pwd})
@@ -1168,44 +1091,17 @@ def page_config():
         with c2:
             ftp_pwd = st.text_input("Mot de passe FTP", value=cfg.get("ftp_password", ""), type="password")
         ftp_path = st.text_input("Chemin distant", value=cfg.get("ftp_path", "/htdocs/veille-ia.html"))
-
-        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-        # Champ optionnel : URL publique de la page (pour le lien "Voir la page")
-        url_pub = st.text_input(
-            "URL publique de la page (optionnel)",
-            value=cfg.get("url_publique", ""),
-            placeholder="https://monsite.com/veille-ia.html",
-            help="Si renseignée, un lien 'Voir la page publiée' apparaîtra après chaque publication FTP.")
-
-        cs, ct = st.columns(2)
+        cs, ct   = st.columns(2)
         with cs:
             if st.button("💾 Sauvegarder FTP", use_container_width=True):
-                cfg.update({
-                    "ftp_host":     ftp_host,
-                    "ftp_user":     ftp_user,
-                    "ftp_password": ftp_pwd,
-                    "ftp_path":     ftp_path,
-                    "url_publique": url_pub,
-                })
+                cfg.update({"ftp_host": ftp_host, "ftp_user": ftp_user,
+                            "ftp_password": ftp_pwd, "ftp_path": ftp_path})
                 _save_cfg(cfg)
                 st.success("Sauvegardé !")
         with ct:
             if st.button("🔌 Tester FTP", use_container_width=True):
                 ok, msg = srv.tester_connexion_ftp(ftp_host, ftp_user, ftp_pwd)
                 st.success(msg) if ok else st.error(msg)
-
-    st.markdown("---")
-    st.markdown("#### 🔒 Session & connexion")
-    st.markdown(
-        '<div style="font-size:12px;color:var(--subtext);margin-bottom:12px;">'
-        'Si vous avez coché "Rester connecté" lors de la connexion, votre session '
-        'est mémorisée dans le localStorage de ce navigateur.<br>'
-        'Cliquez ici pour révoquer cette mémorisation sur cet appareil.</div>',
-        unsafe_allow_html=True)
-    if st.button("🚫 Oublier cet appareil", use_container_width=False):
-        _clear_refresh_token_js()
-        st.success("Mémorisation supprimée sur cet appareil.")
-
     st.markdown("---")
     c1, c2 = st.columns(2)
     with c1:
@@ -1226,18 +1122,10 @@ def page_config():
 # ============================================================
 # ROUTING PRINCIPAL
 # ============================================================
-
-# 1. Lecture unique du refresh_token depuis localStorage via query param
-#    (injecte le JS qui recharge la page avec ?_rt=... si besoin)
-if not st.session_state.get("user"):
-    _inject_localstorage_reader()
-    _check_auto_login()
-
-# 2. Réactive le storage si déjà connecté
 user = st.session_state.get("user")
+
 if user:
     _activer_storage(user.id)
-    # Charge le thème sauvegardé depuis la config (une seule fois)
     try:
         cfg_saved = _cfg()
         if "theme_ftp" in cfg_saved and isinstance(cfg_saved["theme_ftp"], str):
@@ -1247,10 +1135,8 @@ if user:
     except Exception:
         pass
 
-# 3. Sidebar (toujours)
 render_sidebar()
 
-# 4. Routing
 page = st.session_state["page"]
 
 if not user:
