@@ -205,6 +205,27 @@ def _check_trusted_login():
         pass
 
 # ============================================================
+# THÈME PAR DÉFAUT (Catppuccin)
+# ============================================================
+THEME_DEFAULT = {
+    "bg":     "#1e1e2e",
+    "surf":   "#181825",
+    "ov":     "#313244",
+    "txt":    "#cdd6f4",
+    "sub":    "#a6adc8",
+    "brd":    "#45475a",
+    "blue":   "#89b4fa",
+    "grn":    "#a6e3a1",
+    "yel":    "#f9e2af",
+    "red":    "#f38ba8",
+    "font":   "Arial,sans-serif",
+    "fs":     "13",
+    "rad":    "8",
+    "ptitle": "Veille Technologique IA",
+    "stitle": "Intelligence Artificielle",
+}
+
+# ============================================================
 # SESSION STATE
 # ============================================================
 def _init_state():
@@ -213,13 +234,9 @@ def _init_state():
         "en_cours":False,"page":"accueil",
         "user":None,"session":None,"profil":{},
         "dernier_log":"",
-        "theme_ftp": {
-            "bg":"#1e1e2e","surf":"#181825","ov":"#313244",
-            "txt":"#cdd6f4","sub":"#a6adc8","brd":"#45475a",
-            "blue":"#89b4fa","grn":"#a6e3a1","yel":"#f9e2af","red":"#f38ba8",
-            "font":"Arial,sans-serif","fs":"13","rad":"8",
-            "ptitle":"Veille Technologique IA","stitle":"Intelligence Artificielle",
-        },
+        # Incrémenté à chaque preset/reset pour forcer le re-render des color_picker
+        "theme_widget_version": 0,
+        "theme_ftp": dict(THEME_DEFAULT),
     }
     for k,v in defaults.items():
         if k not in st.session_state:
@@ -293,6 +310,15 @@ def _activer_storage(user_id):
             srv.set_storage_context(storage)
         except Exception:
             pass
+
+def _appliquer_theme(valeurs: dict):
+    """
+    Applique un dict de valeurs au thème ET incrémente la version.
+    Incrémenter la version change les keys des color_picker/slider/selectbox
+    → Streamlit les recrée avec les nouvelles valeurs (contourne le cache widget).
+    """
+    st.session_state["theme_ftp"].update(valeurs)
+    st.session_state["theme_widget_version"] += 1
 
 # ============================================================
 # SIDEBAR
@@ -419,7 +445,7 @@ def page_accueil():
                         st.error(res["message"])
 
             st.markdown("<div style='height:8px'></div>",unsafe_allow_html=True)
-            if st.button("Mot de passe oublié ?",use_container_width=True,key="btn_reset"):
+            if st.button("Mot de passe oublié ?",use_container_width=True,key="btn_reset_pwd"):
                 if email:
                     res=auth.reinitialiser_mot_de_passe(email)
                     if res["ok"]: st.success(res["message"])
@@ -464,72 +490,102 @@ def page_accueil():
 # ÉDITEUR DE THÈME FTP
 # ============================================================
 def _render_theme_editor():
-    th=st.session_state["theme_ftp"]
+    th  = st.session_state["theme_ftp"]
+    # ver est inclus dans toutes les keys des widgets de couleur/typo
+    # → quand ver change, Streamlit crée de nouveaux widgets avec les bonnes valeurs
+    ver = st.session_state["theme_widget_version"]
 
     st.markdown("---")
     st.markdown(
         '<div style="font-family:Space Mono;font-size:13px;color:var(--blue);">'
-        '🎨 Personnaliser le thème de veille-ia.html</div>',unsafe_allow_html=True)
+        '🎨 Personnaliser le thème de veille-ia.html</div>', unsafe_allow_html=True)
     st.markdown(
         '<div style="font-size:12px;color:var(--subtext);margin:6px 0 16px 0;">'
-        'Modifiez l\'apparence de la page publiée sur votre hébergement FTP.</div>',unsafe_allow_html=True)
+        'Modifiez l\'apparence de la page publiée sur votre hébergement FTP.</div>',
+        unsafe_allow_html=True)
 
-    PRESETS={
-        "🌙 Catppuccin":{"bg":"#1e1e2e","surf":"#181825","ov":"#313244","txt":"#cdd6f4","sub":"#a6adc8","brd":"#45475a","blue":"#89b4fa","grn":"#a6e3a1","yel":"#f9e2af","red":"#f38ba8"},
-        "☀️ Light":     {"bg":"#f8f9fa","surf":"#ffffff","ov":"#e9ecef","txt":"#212529","sub":"#6c757d","brd":"#dee2e6","blue":"#0d6efd","grn":"#198754","yel":"#e67e00","red":"#dc3545"},
-        "❄️ Nord":      {"bg":"#2e3440","surf":"#3b4252","ov":"#434c5e","txt":"#eceff4","sub":"#d8dee9","brd":"#4c566a","blue":"#88c0d0","grn":"#a3be8c","yel":"#ebcb8b","red":"#bf616a"},
-        "🧛 Dracula":   {"bg":"#282a36","surf":"#1e1f29","ov":"#44475a","txt":"#f8f8f2","sub":"#6272a4","brd":"#44475a","blue":"#8be9fd","grn":"#50fa7b","yel":"#f1fa8c","red":"#ff5555"},
+    PRESETS = {
+        "🌙 Catppuccin": {"bg":"#1e1e2e","surf":"#181825","ov":"#313244","txt":"#cdd6f4","sub":"#a6adc8","brd":"#45475a","blue":"#89b4fa","grn":"#a6e3a1","yel":"#f9e2af","red":"#f38ba8"},
+        "☀️ Light":      {"bg":"#f8f9fa","surf":"#ffffff","ov":"#e9ecef","txt":"#212529","sub":"#6c757d","brd":"#dee2e6","blue":"#0d6efd","grn":"#198754","yel":"#e67e00","red":"#dc3545"},
+        "❄️ Nord":       {"bg":"#2e3440","surf":"#3b4252","ov":"#434c5e","txt":"#eceff4","sub":"#d8dee9","brd":"#4c566a","blue":"#88c0d0","grn":"#a3be8c","yel":"#ebcb8b","red":"#bf616a"},
+        "🧛 Dracula":    {"bg":"#282a36","surf":"#1e1f29","ov":"#44475a","txt":"#f8f8f2","sub":"#6272a4","brd":"#44475a","blue":"#8be9fd","grn":"#50fa7b","yel":"#f1fa8c","red":"#ff5555"},
     }
 
-    cols_preset=st.columns(len(PRESETS))
-    for i,(label,vals) in enumerate(PRESETS.items()):
-        with cols_preset[i]:
-            if st.button(label,use_container_width=True,key=f"preset_{i}"):
-                for k,v in vals.items():
-                    st.session_state["theme_ftp"][k]=v
+    # ── Ligne : 4 presets + bouton Reset ──────────────────────
+    cols = st.columns(len(PRESETS) + 1)
+    for i, (label, vals) in enumerate(PRESETS.items()):
+        with cols[i]:
+            if st.button(label, use_container_width=True, key=f"preset_{i}"):
+                _appliquer_theme(vals)
                 st.rerun()
+    with cols[len(PRESETS)]:
+        if st.button("🔄 Reset", use_container_width=True, key="btn_reset_theme",
+                     help="Revenir au thème Catppuccin par défaut"):
+            _appliquer_theme(dict(THEME_DEFAULT))
+            # Supprime aussi le thème sauvegardé en config
+            try:
+                cfg = _cfg()
+                cfg.pop("theme_ftp", None)
+                _save_cfg(cfg)
+            except Exception:
+                pass
+            st.rerun()
 
-    st.markdown("<div style='height:8px'></div>",unsafe_allow_html=True)
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
-    col_left,col_right=st.columns(2)
+    col_left, col_right = st.columns(2)
 
     with col_left:
         st.markdown("**Couleurs**")
-        sub_cols=st.columns(2)
-        color_fields=[
-            ("bg","Fond page"),("surf","Fond carte"),("ov","Fond hover"),("txt","Texte"),
-            ("sub","Sous-texte"),("brd","Bordure"),("blue","Bleu (liens)"),("grn","Vert"),
-            ("yel","Jaune (synthèse)"),("red","Rouge"),
+        sub_cols = st.columns(2)
+        color_fields = [
+            ("bg",   "Fond page"),   ("surf", "Fond carte"),
+            ("ov",   "Fond hover"),  ("txt",  "Texte"),
+            ("sub",  "Sous-texte"),  ("brd",  "Bordure"),
+            ("blue", "Bleu (liens)"),("grn",  "Vert"),
+            ("yel",  "Jaune (synthèse)"), ("red", "Rouge"),
         ]
-        for i,(key,label) in enumerate(color_fields):
-            with sub_cols[i%2]:
-                val=st.color_picker(label,value=th.get(key,"#ffffff"),key=f"th_{key}")
-                st.session_state["theme_ftp"][key]=val
+        for i, (key, label) in enumerate(color_fields):
+            with sub_cols[i % 2]:
+                # ✅ KEY versionnée → nouveau widget à chaque preset/reset
+                val = st.color_picker(
+                    label,
+                    value=th.get(key, "#ffffff"),
+                    key=f"th_{key}_v{ver}"
+                )
+                st.session_state["theme_ftp"][key] = val
 
     with col_right:
         st.markdown("**Typographie & Mise en page**")
-        font_opts=["Arial,sans-serif","'Segoe UI',sans-serif","Georgia,serif","'Courier New',monospace","'Inter',sans-serif"]
-        cur_font=th.get("font","Arial,sans-serif")
-        font_idx=font_opts.index(cur_font) if cur_font in font_opts else 0
-        font=st.selectbox("Police",font_opts,index=font_idx,key="th_font")
-        st.session_state["theme_ftp"]["font"]=font
+        font_opts = [
+            "Arial,sans-serif", "'Segoe UI',sans-serif",
+            "Georgia,serif", "'Courier New',monospace", "'Inter',sans-serif"
+        ]
+        cur_font = th.get("font", "Arial,sans-serif")
+        font_idx = font_opts.index(cur_font) if cur_font in font_opts else 0
+        font = st.selectbox("Police", font_opts, index=font_idx, key=f"th_font_v{ver}")
+        st.session_state["theme_ftp"]["font"] = font
 
-        fs=st.slider("Taille du texte (px)",11,16,int(th.get("fs",13)),key="th_fs")
-        st.session_state["theme_ftp"]["fs"]=str(fs)
+        fs = st.slider("Taille du texte (px)", 11, 16, int(th.get("fs", 13)), key=f"th_fs_v{ver}")
+        st.session_state["theme_ftp"]["fs"] = str(fs)
 
-        rad=st.slider("Rayon des cartes (px)",0,20,int(th.get("rad",8)),key="th_rad")
-        st.session_state["theme_ftp"]["rad"]=str(rad)
+        rad = st.slider("Rayon des cartes (px)", 0, 20, int(th.get("rad", 8)), key=f"th_rad_v{ver}")
+        st.session_state["theme_ftp"]["rad"] = str(rad)
 
         st.markdown("**Textes**")
-        ptitle=st.text_input("Titre de la page",value=th.get("ptitle","Veille Technologique IA"),key="th_ptitle")
-        st.session_state["theme_ftp"]["ptitle"]=ptitle
+        ptitle = st.text_input(
+            "Titre de la page",
+            value=th.get("ptitle", "Veille Technologique IA"),
+            key=f"th_ptitle_v{ver}"
+        )
+        st.session_state["theme_ftp"]["ptitle"] = ptitle
 
-    # Aperçu
-    t=st.session_state["theme_ftp"]
+    # ── Aperçu live ───────────────────────────────────────────
+    t = st.session_state["theme_ftp"]
     st.markdown(
         f'<div style="margin-top:12px;padding:16px;background:{t["bg"]};border-radius:{t["rad"]}px;'
         f'border:1px solid {t["brd"]};font-family:{t["font"]};">'
-        f'<div style="font-size:18px;font-weight:bold;color:{t["blue"]};margin-bottom:10px;">{ptitle}</div>'
+        f'<div style="font-size:18px;font-weight:bold;color:{t["blue"]};margin-bottom:10px;">{t["ptitle"]}</div>'
         f'<div style="font-size:12px;color:{t["sub"]};margin-bottom:12px;">Aperçu du thème — {datetime.now().strftime("%d/%m/%Y")}</div>'
         f'<div style="background:{t["ov"]};border-radius:{t["rad"]}px;padding:10px 14px;margin-bottom:8px;">'
         f'<div style="font-size:13px;font-weight:600;color:{t["blue"]};">Article exemple</div>'
@@ -544,19 +600,19 @@ def _render_theme_editor():
         unsafe_allow_html=True
     )
 
-    col_apply,col_save=st.columns(2)
+    # ── Actions ───────────────────────────────────────────────
+    col_apply, col_save = st.columns(2)
     with col_apply:
-        if st.button("🎨 Appliquer & republier sur FTP",type="primary",use_container_width=True,key="btn_apply_theme"):
+        if st.button("🎨 Appliquer & republier sur FTP", type="primary",
+                     use_container_width=True, key="btn_apply_theme"):
             if srv.ftp_est_configure():
                 with st.spinner("Regénération et upload FTP…"):
                     try:
-                        # ✅ CORRIGÉ : on passe l'historique local + le thème
-                        # Le FTP existant est complètement ignoré
                         h = _historique()
                         ok, msg = srv._publier_ftp_avec_historique(
-                            None,           # contenu_html ignoré dans la nouvelle version
-                            h,              # historique Supabase/local — source de vérité
-                            st.session_state["theme_ftp"]  # thème personnalisé
+                            None,
+                            h,
+                            st.session_state["theme_ftp"]
                         )
                         if ok: st.success(f"✅ {msg}")
                         else:  st.error(msg)
@@ -565,9 +621,9 @@ def _render_theme_editor():
             else:
                 st.warning("FTP non configuré — allez dans Configuration.")
     with col_save:
-        if st.button("💾 Sauvegarder le thème",use_container_width=True,key="btn_save_theme"):
-            cfg=_cfg()
-            cfg["theme_ftp"]=json.dumps(st.session_state["theme_ftp"])
+        if st.button("💾 Sauvegarder le thème", use_container_width=True, key="btn_save_theme"):
+            cfg = _cfg()
+            cfg["theme_ftp"] = json.dumps(st.session_state["theme_ftp"])
             _save_cfg(cfg)
             st.success("Thème sauvegardé !")
 
@@ -799,7 +855,6 @@ def page_veille():
     elif lancer and not sujet.strip():
         st.warning("Entrez au moins un sujet.")
 
-    # ── Éditeur de thème FTP en bas de page ───────────────
     if not st.session_state["en_cours"]:
         _render_theme_editor()
 
@@ -988,12 +1043,14 @@ user=st.session_state.get("user")
 
 if user:
     _activer_storage(user.id)
-    # Charge le thème sauvegardé
     try:
         cfg_saved=_cfg()
         if "theme_ftp" in cfg_saved and isinstance(cfg_saved["theme_ftp"],str):
             saved=json.loads(cfg_saved["theme_ftp"])
-            st.session_state["theme_ftp"].update(saved)
+            # Charge le thème sauvegardé seulement au premier démarrage (version == 0)
+            # Après un preset/reset (version > 0) on ne l'écrase pas
+            if st.session_state["theme_widget_version"] == 0:
+                st.session_state["theme_ftp"].update(saved)
     except Exception:
         pass
 
