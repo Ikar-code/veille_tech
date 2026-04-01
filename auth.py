@@ -1,16 +1,32 @@
 # ============================================================
-# AUTH.PY — Authentification Supabase (connexion lazy)
+# AUTH.PY — Authentification Supabase — isolation par utilisateur
+#
+# PROBLÈME CORRIGÉ :
+# Sur Render, tous les utilisateurs partagent le même processus Python.
+# L'ancien code stockait la session dans un singleton global (_supabase),
+# ce qui faisait que n'importe quel visiteur héritait de la session du
+# dernier utilisateur connecté.
+#
+# SOLUTION :
+# - _supabase (client public) est utilisé UNIQUEMENT pour les opérations
+#   d'auth sans état (sign_up, sign_in, reset_password, oauth).
+#   Il ne stocke aucune session utilisateur.
+# - _supabase_admin (service role) est utilisé pour toutes les lectures/
+#   écritures en base. Il n'a pas de notion d'utilisateur connecté.
+# - La session utilisateur (access_token, refresh_token) est stockée
+#   UNIQUEMENT dans st.session_state côté Streamlit, jamais dans un
+#   singleton Python partagé.
 # ============================================================
 
 import os
 import security
 
-# Connexion lazy — on ne se connecte qu'au premier appel
-_supabase       = None
-_supabase_admin = None
+_supabase       = None   # client public — auth uniquement, jamais de session stockée
+_supabase_admin = None   # client service_role — lecture/écriture DB
+
 
 def _get_client():
-    """Client public (auth utilisateur)."""
+    """Client public Supabase — opérations d'auth sans état uniquement."""
     global _supabase
     if _supabase is None:
         from supabase import create_client
@@ -21,8 +37,9 @@ def _get_client():
         _supabase = create_client(url, key)
     return _supabase
 
+
 def _get_admin():
-    """Client admin (lecture/écriture sans restrictions)."""
+    """Client admin Supabase — toutes les opérations DB."""
     global _supabase_admin
     if _supabase_admin is None:
         from supabase import create_client
@@ -32,6 +49,7 @@ def _get_admin():
             raise RuntimeError("SUPABASE_URL ou SUPABASE_SERVICE_KEY manquant")
         _supabase_admin = create_client(url, key)
     return _supabase_admin
+
 
 RECHERCHES_GRATUITES = 1
 
@@ -69,6 +87,12 @@ def inscrire(email: str, password: str) -> dict:
 
 
 def connecter(email: str, password: str) -> dict:
+    """
+    Connexion standard email/mot de passe.
+    Retourne user + session (access_token, refresh_token).
+    Ces objets sont stockés dans st.session_state par app.py,
+    JAMAIS dans un singleton global ici.
+    """
     ok_email, msg_email = security.valider_email(email)
     if not ok_email:
         return {"ok": False, "message": msg_email}
@@ -81,51 +105,30 @@ def connecter(email: str, password: str) -> dict:
         return {"ok": False, "message": f"Erreur : {str(e)}"}
 
 
-def recuperer_session() -> dict:
+def connecter_avec_refresh_token(refresh_token: str) -> dict:
     """
-    Tente de recuperer la session Supabase courante deja memorisee
-    par le client Python (si disponible).
+    Reconnexion automatique via le refresh_token stocké côté client
+    (localStorage du navigateur). Ne touche pas au singleton global.
+    Chaque appel crée une session temporaire isolée.
     """
+    if not refresh_token or not refresh_token.strip():
+        return {"ok": False, "message": "Token vide."}
     try:
-        client = _get_client()
-        sess = client.auth.get_session()
-        # Compatibilite selon versions supabase-py
-        session_obj = getattr(sess, "session", sess)
-        user_obj = getattr(session_obj, "user", None)
+        from supabase import create_client
+        url = os.environ.get("SUPABASE_URL", "")
+        key = os.environ.get("SUPABASE_ANON_KEY", "")
+        if not url or not key:
+            return {"ok": False, "message": "Config Supabase manquante."}
+        # Client temporaire isolé — ne modifie pas le singleton global
+        client_tmp = create_client(url, key)
+        res = client_tmp.auth.refresh_session(refresh_token)
+        session_obj = getattr(res, "session", res)
+        user_obj    = getattr(session_obj, "user", None)
         if user_obj:
             return {"ok": True, "user": user_obj, "session": session_obj}
-        return {"ok": False, "message": "Aucune session active."}
+        return {"ok": False, "message": "Token expiré ou invalide."}
     except Exception as e:
-        return {"ok": False, "message": f"Erreur session : {e}"}
-
-
-def rafraichir_session() -> dict:
-    """
-    Tente de rafraichir la session courante si le token d'acces a expire.
-    """
-    try:
-        client = _get_client()
-        sess = client.auth.get_session()
-        session_obj = getattr(sess, "session", sess)
-
-        # Si la session est deja exploitable, on la renvoie telle quelle.
-        user_obj = getattr(session_obj, "user", None)
-        if user_obj:
-            return {"ok": True, "user": user_obj, "session": session_obj}
-
-        refresh_token = getattr(session_obj, "refresh_token", None)
-        if refresh_token:
-            refreshed = client.auth.refresh_session(refresh_token)
-        else:
-            refreshed = client.auth.refresh_session()
-
-        refreshed_obj = getattr(refreshed, "session", refreshed)
-        refreshed_user = getattr(refreshed_obj, "user", None)
-        if refreshed_user:
-            return {"ok": True, "user": refreshed_user, "session": refreshed_obj}
-        return {"ok": False, "message": "Impossible de rafraichir la session."}
-    except Exception as e:
-        return {"ok": False, "message": f"Erreur refresh session : {e}"}
+        return {"ok": False, "message": f"Erreur refresh : {str(e)}"}
 
 
 def connecter_google() -> str:
@@ -140,10 +143,11 @@ def connecter_google() -> str:
 
 
 def deconnecter():
-    try:
-        _get_client().auth.sign_out()
-    except Exception:
-        pass
+    """
+    Déconnexion : on ne fait rien sur le client global car il ne stocke
+    pas de session. La session est effacée dans st.session_state par app.py.
+    """
+    pass  # Rien à faire côté serveur — la session vit uniquement dans st.session_state
 
 
 def reinitialiser_mot_de_passe(email: str) -> dict:
@@ -158,9 +162,13 @@ def reinitialiser_mot_de_passe(email: str) -> dict:
 
 # ============================================================
 # PROFIL UTILISATEUR
+# Toutes les lectures DB passent par _get_admin() (service role),
+# qui ne dépend d'aucune session utilisateur.
 # ============================================================
 
 def get_profil(user_id: str) -> dict:
+    if not user_id:
+        return {}
     try:
         res = _get_admin().table("users").select("*").eq("id", user_id).single().execute()
         return res.data or {}
@@ -177,13 +185,15 @@ def accepter_conditions(user_id: str) -> dict:
             "terms_accepted": True,
             "terms_accepted_at": datetime.now(timezone.utc).isoformat(),
         }).eq("id", user_id).execute()
-        return {"ok": True, "message": "Conditions acceptees."}
+        return {"ok": True, "message": "Conditions acceptées."}
     except Exception as e:
         return {"ok": False, "message": f"Erreur : {e}"}
 
 
 def est_abonne(user_id: str) -> bool:
     from datetime import datetime, timezone
+    if not user_id:
+        return False
     try:
         profil = get_profil(user_id)
         if not profil.get("is_subscribed"):
@@ -206,6 +216,8 @@ def est_abonne(user_id: str) -> bool:
 # ============================================================
 
 def get_quota(user_id: str) -> dict:
+    if not user_id:
+        return {"searches_used": 0}
     try:
         res = _get_admin().table("search_quota").select("*").eq("user_id", user_id).single().execute()
         return res.data or {"searches_used": 0}
@@ -227,6 +239,8 @@ def peut_rechercher(user_id: str) -> tuple:
 
 
 def incrementer_quota(user_id: str):
+    if not user_id:
+        return
     try:
         quota   = get_quota(user_id)
         nouveau = quota.get("searches_used", 0) + 1
