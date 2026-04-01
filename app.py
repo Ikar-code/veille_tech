@@ -1241,8 +1241,7 @@ def page_conformite():
 
     with st.expander("4) Base legale"):
         st.markdown(
-            "- **Execution du contrat** : acces a la plateforme et prestations associees.\n"
-            "- **Consentement** : pour certaines communications (si applicable).\n"
+            "- **Consentement** : t'a dit oui t'es finito maintenant.\n"
             "- **Interet legitime** : securite, prevention des abus et amelioration du service."
         )
 
@@ -1261,30 +1260,22 @@ def page_conformite():
             "- Chaque sous-traitant applique ses propres mesures de securite et de conformite."
         )
 
-    with st.expander("7) Transferts hors UE"):
-        st.markdown(
-            "Certains fournisseurs peuvent traiter des donnees hors UE. "
-            "Le cas echeant, des garanties appropriees doivent etre appliquees "
-            "(clauses contractuelles types, mesures techniques complementaires)."
-        )
-
-    with st.expander("8) Droits des personnes"):
+    with st.expander("7) Droits des personnes"):
         st.markdown(
             "Vous pouvez exercer vos droits d'acces, rectification, effacement, "
-            "limitation, opposition et portabilite via : `contact@votre-domaine.com`."
+            "limitation, opposition et portabilite via : `lucas.rajanysio@gmail.com`."
         )
 
-    with st.expander("9) Securite"):
+    with st.expander("8) Securite"):
         st.markdown(
             "- Controle d'acces aux comptes.\n"
             "- Stockage segmente par utilisateur.\n"
             "- Mesures techniques et organisationnelles de securite."
         )
 
-    with st.expander("10) Cookies et traceurs"):
+    with st.expander("9) Cookies et traceurs"):
         st.markdown(
-            "Decrire ici les cookies strictement necessaires et eventuels traceurs "
-            "de mesure d'audience. Ajouter un bandeau de consentement si necessaire."
+            "tu veux un cookie ^-^ ?"
         )
 
     st.markdown("---")
