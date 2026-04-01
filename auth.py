@@ -111,6 +111,20 @@ def get_profil(user_id: str) -> dict:
         return {}
 
 
+def accepter_conditions(user_id: str) -> dict:
+    from datetime import datetime, timezone
+    if not user_id:
+        return {"ok": False, "message": "Utilisateur invalide."}
+    try:
+        _get_admin().table("users").update({
+            "terms_accepted": True,
+            "terms_accepted_at": datetime.now(timezone.utc).isoformat(),
+        }).eq("id", user_id).execute()
+        return {"ok": True, "message": "Conditions acceptees."}
+    except Exception as e:
+        return {"ok": False, "message": f"Erreur : {e}"}
+
+
 def est_abonne(user_id: str) -> bool:
     from datetime import datetime, timezone
     try:

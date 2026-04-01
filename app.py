@@ -164,6 +164,22 @@ def _est_abonne():
     uid = _user_id()
     return auth.est_abonne(uid) if uid else False
 
+def _conditions_acceptees():
+    if not AUTH_OK:
+        return True
+    uid = _user_id()
+    if not uid:
+        return False
+    profil = st.session_state.get("profil") or {}
+    if "terms_accepted" in profil:
+        return bool(profil.get("terms_accepted"))
+    try:
+        profil = auth.get_profil(uid) or {}
+        st.session_state["profil"] = profil
+        return bool(profil.get("terms_accepted"))
+    except Exception:
+        return False
+
 def _goto(page):
     st.session_state["page"] = page
     st.rerun()
@@ -264,6 +280,8 @@ def render_sidebar():
                 "⏰ Automatisation":  "auto",
                 "⚙️ Configuration":   "config",
                 "✨ Abonnement":      "abonnement",
+                "📄 Conditions":      "conditions",
+                "🛡️ Conformité RGPD": "conformite",
             }
             for label, key in pages.items():
                 actif = page == key
@@ -1186,6 +1204,134 @@ document.getElementById("veille-container").innerHTML =
             unsafe_allow_html=True)
 
 # ============================================================
+# PAGE CONFORMITE RGPD
+# ============================================================
+def page_conformite():
+    st.markdown("# 🛡️ Conformité & RGPD")
+    st.markdown("### Informations sur la protection des données")
+    st.markdown("---")
+
+    st.info(
+        "Cette page est un modele informatif a personnaliser avec vos informations "
+        "legales definitives (raison sociale, DPO, hebergeur, durees exactes, etc.)."
+    )
+
+    with st.expander("1) Responsable du traitement", expanded=True):
+        st.markdown(
+            "- **Editeur du service** : `lucas rajany`\n"
+            "- **Contact** : `lucas.rajanysio@gmail.com`\n"
+            "- **Delegue a la protection des donnees (DPO)** : `A COMPLETER`"
+        )
+
+    with st.expander("2) Donnees collectees"):
+        st.markdown(
+            "- Donnees de compte : email, identifiant utilisateur.\n"
+            "- Donnees de configuration : preferences veille, integrations (WordPress/FTP).\n"
+            "- Donnees de contenu : sujets, resultats, historique de veille.\n"
+            "- Donnees techniques : journaux techniques de fonctionnement."
+        )
+
+    with st.expander("3) Finalites du traitement"):
+        st.markdown(
+            "- Fournir le service de veille et l'historique.\n"
+            "- Generer des resumes et syntheses IA.\n"
+            "- Publier les contenus sur les integrations choisies.\n"
+            "- Envoyer des emails automatiques si active."
+        )
+
+    with st.expander("4) Base legale"):
+        st.markdown(
+            "- **Execution du contrat** : acces a la plateforme et prestations associees.\n"
+            "- **Consentement** : pour certaines communications (si applicable).\n"
+            "- **Interet legitime** : securite, prevention des abus et amelioration du service."
+        )
+
+    with st.expander("5) Duree de conservation"):
+        st.markdown(
+            "- Compte utilisateur : pendant la duree d'utilisation, puis archivage/suppression selon politique interne.\n"
+            "- Historique de veille : jusqu'a suppression par l'utilisateur ou expiration de la retention.\n"
+            "- Logs techniques : conservation limitee pour securite et diagnostic."
+        )
+
+    with st.expander("6) Destinataires et sous-traitants"):
+        st.markdown(
+            "- Hebergement / base de donnees : Supabase.\n"
+            "- Services IA : Groq.\n"
+            "- Integrations tierces : WordPress, FTP, fournisseur email.\n"
+            "- Chaque sous-traitant applique ses propres mesures de securite et de conformite."
+        )
+
+    with st.expander("7) Transferts hors UE"):
+        st.markdown(
+            "Certains fournisseurs peuvent traiter des donnees hors UE. "
+            "Le cas echeant, des garanties appropriees doivent etre appliquees "
+            "(clauses contractuelles types, mesures techniques complementaires)."
+        )
+
+    with st.expander("8) Droits des personnes"):
+        st.markdown(
+            "Vous pouvez exercer vos droits d'acces, rectification, effacement, "
+            "limitation, opposition et portabilite via : `contact@votre-domaine.com`."
+        )
+
+    with st.expander("9) Securite"):
+        st.markdown(
+            "- Controle d'acces aux comptes.\n"
+            "- Stockage segmente par utilisateur.\n"
+            "- Mesures techniques et organisationnelles de securite."
+        )
+
+    with st.expander("10) Cookies et traceurs"):
+        st.markdown(
+            "Decrire ici les cookies strictement necessaires et eventuels traceurs "
+            "de mesure d'audience. Ajouter un bandeau de consentement si necessaire."
+        )
+
+    st.markdown("---")
+
+# ============================================================
+# PAGE CONDITIONS D'UTILISATION
+# ============================================================
+def page_conditions():
+    st.markdown("# 📄 Conditions d'utilisation")
+    st.markdown("### Acceptation obligatoire pour utiliser la plateforme")
+    st.markdown("---")
+
+    st.markdown(
+        """
+En utilisant Veille IA, vous acceptez notamment que :
+
+- Le service collecte les donnees necessaires au fonctionnement (compte, configuration, historique).
+- Les contenus analyses peuvent etre traites par des services tiers (ex: IA, email, hebergement).
+- Vous restez responsable des publications effectuees vers WordPress/FTP.
+- Le service est fourni "en l'etat" et peut evoluer dans le temps.
+- Vous pouvez demander la suppression de vos donnees selon la politique en vigueur.
+        """
+    )
+
+    st.info("j'ai pas de condition juste dite bonjour.")
+
+    uid = _user_id()
+    if _conditions_acceptees():
+        st.success("Conditions deja acceptees.")
+        if st.button("Retour a l'application", type="primary"):
+            _goto("veille")
+        return
+
+    cgu_ok = st.checkbox("J'ai lu et j'accepte les Conditions d'utilisation.")
+    if st.button("✅ Accepter et continuer", type="primary", disabled=not cgu_ok):
+        if not AUTH_OK or not uid:
+            st.error("Session invalide. Reconnectez-vous.")
+            return
+        res = auth.accepter_conditions(uid)
+        if res.get("ok"):
+            st.session_state["profil"] = auth.get_profil(uid)
+            st.success("Merci, vos conditions ont ete enregistrees.")
+            _goto("veille")
+        else:
+            st.error(res.get("message", "Erreur lors de l'enregistrement."))
+
+# ============================================================
 # ROUTING PRINCIPAL
 # ============================================================
 user = st.session_state.get("user")
@@ -1208,10 +1354,15 @@ page = st.session_state["page"]
 if not user:
     page_accueil()
 else:
-    if   page == "veille":      page_veille()
-    elif page == "historique":  page_historique()
-    elif page == "comparaison": page_comparaison()
-    elif page == "auto":        page_auto()
-    elif page == "config":      page_config()
-    elif page == "abonnement":  page_abonnement()
-    else:                       page_veille()
+    if AUTH_OK and not _conditions_acceptees():
+        page_conditions()
+    else:
+        if   page == "veille":      page_veille()
+        elif page == "historique":  page_historique()
+        elif page == "comparaison": page_comparaison()
+        elif page == "auto":        page_auto()
+        elif page == "config":      page_config()
+        elif page == "abonnement":  page_abonnement()
+        elif page == "conditions":  page_conditions()
+        elif page == "conformite":  page_conformite()
+        else:                       page_veille()
