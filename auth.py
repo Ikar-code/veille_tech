@@ -3,6 +3,7 @@
 # ============================================================
 
 import os
+import security
 
 # Connexion lazy — on ne se connecte qu'au premier appel
 _supabase       = None
@@ -39,6 +40,9 @@ RECHERCHES_GRATUITES = 1
 # ============================================================
 
 def inscrire(email: str, password: str) -> dict:
+    ok_email, msg_email = security.valider_email(email)
+    if not ok_email:
+        return {"ok": False, "message": msg_email}
     try:
         res = _get_client().auth.sign_up({"email": email, "password": password})
         if res.user:
@@ -65,6 +69,9 @@ def inscrire(email: str, password: str) -> dict:
 
 
 def connecter(email: str, password: str) -> dict:
+    ok_email, msg_email = security.valider_email(email)
+    if not ok_email:
+        return {"ok": False, "message": msg_email}
     try:
         res = _get_client().auth.sign_in_with_password({"email": email, "password": password})
         if res.user:
@@ -72,6 +79,53 @@ def connecter(email: str, password: str) -> dict:
         return {"ok": False, "message": "Identifiants incorrects."}
     except Exception as e:
         return {"ok": False, "message": f"Erreur : {str(e)}"}
+
+
+def recuperer_session() -> dict:
+    """
+    Tente de recuperer la session Supabase courante deja memorisee
+    par le client Python (si disponible).
+    """
+    try:
+        client = _get_client()
+        sess = client.auth.get_session()
+        # Compatibilite selon versions supabase-py
+        session_obj = getattr(sess, "session", sess)
+        user_obj = getattr(session_obj, "user", None)
+        if user_obj:
+            return {"ok": True, "user": user_obj, "session": session_obj}
+        return {"ok": False, "message": "Aucune session active."}
+    except Exception as e:
+        return {"ok": False, "message": f"Erreur session : {e}"}
+
+
+def rafraichir_session() -> dict:
+    """
+    Tente de rafraichir la session courante si le token d'acces a expire.
+    """
+    try:
+        client = _get_client()
+        sess = client.auth.get_session()
+        session_obj = getattr(sess, "session", sess)
+
+        # Si la session est deja exploitable, on la renvoie telle quelle.
+        user_obj = getattr(session_obj, "user", None)
+        if user_obj:
+            return {"ok": True, "user": user_obj, "session": session_obj}
+
+        refresh_token = getattr(session_obj, "refresh_token", None)
+        if refresh_token:
+            refreshed = client.auth.refresh_session(refresh_token)
+        else:
+            refreshed = client.auth.refresh_session()
+
+        refreshed_obj = getattr(refreshed, "session", refreshed)
+        refreshed_user = getattr(refreshed_obj, "user", None)
+        if refreshed_user:
+            return {"ok": True, "user": refreshed_user, "session": refreshed_obj}
+        return {"ok": False, "message": "Impossible de rafraichir la session."}
+    except Exception as e:
+        return {"ok": False, "message": f"Erreur refresh session : {e}"}
 
 
 def connecter_google() -> str:
@@ -93,6 +147,9 @@ def deconnecter():
 
 
 def reinitialiser_mot_de_passe(email: str) -> dict:
+    ok_email, msg_email = security.valider_email(email)
+    if not ok_email:
+        return {"ok": False, "message": msg_email}
     try:
         _get_client().auth.reset_password_email(email)
         return {"ok": True, "message": "Email de réinitialisation envoyé."}

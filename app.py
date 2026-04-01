@@ -16,6 +16,7 @@ except Exception as e:
     print(f"[app] dotenv indisponible: {e}")
 
 import serveur as srv
+import security
 
 AUTH_OK = False
 try:
@@ -140,6 +141,23 @@ def _init_state():
             st.session_state[k] = v
 
 _init_state()
+
+# Restaure la session utilisateur si possible (evite les deconnexions
+# frequentes lorsque la session Streamlit est recreee).
+if AUTH_OK and not st.session_state.get("user"):
+    try:
+        res_sess = auth.recuperer_session()
+        if not res_sess.get("ok"):
+            res_sess = auth.rafraichir_session()
+        if res_sess.get("ok"):
+            st.session_state["user"] = res_sess.get("user")
+            st.session_state["session"] = res_sess.get("session")
+            try:
+                st.session_state["profil"] = auth.get_profil(res_sess["user"].id)
+            except Exception:
+                st.session_state["profil"] = {}
+    except Exception:
+        pass
 
 # ============================================================
 # HELPERS
@@ -579,8 +597,9 @@ def page_auto():
             pass
     st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
     if st.button("💾 Enregistrer", type="primary"):
-        if not sujets.strip():
-            st.error("Entrez au moins un sujet.")
+        ok_sujets, msg_sujets = security.valider_texte_recherche(sujets, longueur_max=500)
+        if not ok_sujets:
+            st.error(msg_sujets)
         elif not STORAGE_OK:
             st.error("Module storage indisponible.")
         else:
@@ -751,6 +770,10 @@ def page_veille():
             st.markdown(f'<div class="log-box">{log_html}</div>', unsafe_allow_html=True)
 
     if btn_rechercher and sujet.strip() and not st.session_state["en_cours"]:
+        ok_sujet, msg_sujet = security.valider_texte_recherche(sujet, longueur_max=300)
+        if not ok_sujet:
+            st.error(msg_sujet)
+            return
         if AUTH_OK and uid:
             ok_q, msg_q = auth.peut_rechercher(uid)
             if not ok_q:
