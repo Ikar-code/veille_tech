@@ -1328,7 +1328,7 @@ En utilisant Veille IA, vous acceptez notamment que :
     uid = _user_id()
     if _conditions_acceptees():
         st.success("Conditions deja acceptees.")
-        if st.button("Retour a l'application", type="primary"):
+        if st.button("Retour", type="primary"):
             _goto("veille")
         return
 
