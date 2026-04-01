@@ -126,6 +126,19 @@ FLUX_RSS_IA = [
     "https://feeds.feedburner.com/TheHackersNews",
 ]
 
+def est_bloque(domain):
+    domain = domain.lower()
+
+    # 🔥 bloque tout le gouvernement FR automatiquement
+    if domain.endswith(".gouv.fr"):
+        return True
+
+    # 🔴 bloque ta liste personnalisée
+    if any(d in domain for d in DOMAINES_GOUVERNEMENTAUX_BLOQUES):
+        return True
+
+    return False
+
 # ============================================================
 # CONFIG
 # ============================================================
