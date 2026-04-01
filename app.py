@@ -12,8 +12,8 @@ from urllib.parse import urlparse
 try:
     from dotenv import load_dotenv
     load_dotenv()
-except Exception:
-    pass
+except Exception as e:
+    print(f"[app] dotenv indisponible: {e}")
 
 import serveur as srv
 
@@ -21,15 +21,15 @@ AUTH_OK = False
 try:
     import auth
     AUTH_OK = True
-except Exception:
-    pass
+except Exception as e:
+    print(f"[app] module auth indisponible: {e}")
 
 STORAGE_OK = False
 try:
     import storage
     STORAGE_OK = True
-except Exception:
-    pass
+except Exception as e:
+    print(f"[app] module storage indisponible: {e}")
 
 st.set_page_config(
     page_title="Veille IA",
@@ -172,8 +172,8 @@ def _cfg():
     if STORAGE_OK:
         try:
             return storage.charger_config()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[app] fallback config locale (storage): {e}")
     return srv.charger_config()
 
 def _save_cfg(c):
@@ -181,16 +181,16 @@ def _save_cfg(c):
         try:
             storage.sauvegarder_config(c)
             return
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[app] fallback sauvegarde config locale: {e}")
     srv.sauvegarder_config(c)
 
 def _historique():
     if STORAGE_OK:
         try:
             return storage.charger_historique()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[app] fallback historique local: {e}")
     return srv.charger_historique()
 
 def _effacer_sujet(sujet):

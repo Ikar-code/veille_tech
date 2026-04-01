@@ -23,8 +23,8 @@ import serveur
 
 # Charge la config depuis config.json
 _cfg           = serveur.charger_config()
-GMAIL_USER     = "veille.techno.autobylr@gmail.com"
-GMAIL_PASSWORD = "pkwe wcbg ntwj sarr"
+GMAIL_USER     = os.environ.get("GMAIL_USER", _cfg.get("gmail_user", ""))
+GMAIL_PASSWORD = os.environ.get("GMAIL_PASSWORD", _cfg.get("gmail_password", ""))
 EMAIL_DEST     = _cfg.get("email_dest",    os.environ.get("EMAIL_DEST", ""))
 SUJETS         = _cfg.get("email_sujets",  os.environ.get("SUJETS", "intelligence artificielle"))
 

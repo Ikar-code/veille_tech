@@ -15,6 +15,7 @@ import io
 from urllib.parse import urlparse
 from html.parser import HTMLParser
 from difflib import SequenceMatcher
+import settings
 
 try:
     import feedparser
@@ -126,7 +127,7 @@ FLUX_RSS_IA = [
     "https://feeds.feedburner.com/TheHackersNews",
 ]
 
-def est_bloque(domain):
+def est_domaine_bloque(domain):
     domain = domain.lower()
 
     # 🔥 bloque tout le gouvernement FR automatiquement
@@ -170,8 +171,11 @@ def tester_connexion_wp(url, user, pwd):
             base += "/wp-json/wp/v2"
         import base64 as b64
         token = b64.b64encode(f"{user}:{pwd}".encode()).decode()
-        r = requests.get(f"{base}/users/me",
-                         headers={"Authorization": f"Basic {token}"}, timeout=8)
+        r = requests.get(
+            f"{base}/users/me",
+            headers={"Authorization": f"Basic {token}"},
+            timeout=settings.TIMEOUT_HTTP_COURT,
+        )
         if r.status_code == 200:
             return True, f"Connexion reussie ! Connecte : {r.json().get('name', user)}"
         elif r.status_code == 401: return False, "Identifiants incorrects."
@@ -191,7 +195,7 @@ def tester_connexion_ftp(host, user, pwd):
         return False, "Remplissez tous les champs FTP."
     try:
         ftp = ftplib.FTP()
-        ftp.connect(host, 21, timeout=10)
+        ftp.connect(host, 21, timeout=settings.TIMEOUT_HTTP_COURT)
         ftp.login(user, pwd)
         ftp.quit()
         return True, f"Connexion FTP reussie sur {host} !"
@@ -297,6 +301,8 @@ def est_bloque(r, sujet=""):
     titre = normaliser(r.get("title", ""))
     body  = normaliser(r.get("body", ""))
     dom   = urlparse(url).netloc.lower()
+    if est_domaine_bloque(dom):
+        return True
     if any(d in dom for d in DOMAINES_GOUVERNEMENTAUX_BLOQUES):
         return True
     if any(p in normaliser(url) for p in PATTERNS_GOUVERNEMENTAUX_BLOQUES):
@@ -483,7 +489,7 @@ def resumer_article_ollama(titre, url, body_ddg):
                     {"role": "user",
                      "content": f"Article : \"{titre}\"\n\nContenu :\n{source[:2500]}\n\nRédige 3 à 5 points clés. Chaque point commence par \"• \". Phrases complètes. Uniquement les points."}
                 ]
-            }, timeout=30
+            }, timeout=settings.TIMEOUT_HTTP_LONG
         )
         if resp.status_code == 200:
             contenu = resp.json()["choices"][0]["message"]["content"].strip()
@@ -567,7 +573,7 @@ Format :
 
 Phrases directes. N'invente rien."""}
                 ]
-            }, timeout=30
+            }, timeout=settings.TIMEOUT_HTTP_LONG
         )
         if resp.status_code == 200:
             return resp.json()["choices"][0]["message"]["content"].strip()
@@ -580,7 +586,7 @@ Phrases directes. N'invente rien."""}
                          "Content-Type": "application/json"},
                 json={"model": "llama-3.3-70b-versatile", "max_tokens": 3000,
                       "messages": [{"role": "user", "content": contexte[:2000]}]},
-                timeout=30
+                timeout=settings.TIMEOUT_HTTP_LONG
             )
             if resp2.status_code == 200:
                 return resp2.json()["choices"][0]["message"]["content"].strip()
@@ -649,7 +655,7 @@ def comparer_sessions(sujet, session_nouvelle, session_ancienne):
                     {"role": "system", "content": "Tu compares deux sessions de veille technologique."},
                     {"role": "user", "content": f"Sujet : \"{sujet}\"\n\n{contexte}\n\nRédige un résumé des évolutions."}
                 ]
-            }, timeout=30
+            }, timeout=settings.TIMEOUT_HTTP_LONG
         )
         if resp.status_code == 200:
             return resp.json()["choices"][0]["message"]["content"].strip()
@@ -715,10 +721,10 @@ def rechercher(sujet_brut, callback_statut=None):
     data = [scorer_resultat(r, sujet_brut) for r in data]
     data.sort(key=lambda x: x["score"], reverse=True)
     data = deduplique_semantique(data)
-    filtres = [r for r in data if r["score"] >= 50]
+    filtres = [r for r in data if r["score"] >= settings.SCORE_MIN_PRIMAIRE]
     if not filtres:
-        filtres = [r for r in data if r["score"] >= 35]
-    filtres = filtres[:50]
+        filtres = [r for r in data if r["score"] >= settings.SCORE_MIN_SECONDAIRE]
+    filtres = filtres[:settings.MAX_ARTICLES_PAR_RECHERCHE]
     statut(f"{len(filtres)} resultats trouves")
     return filtres
 
@@ -936,7 +942,7 @@ def publier_wordpress(contenu, page_id):
             f"{base}/pages/{page_id}",
             headers=_get_wp_headers(),
             json={"title": "Veille Technologique", "content": contenu, "status": "publish"},
-            timeout=15
+            timeout=settings.TIMEOUT_HTTP_STANDARD
         )
         if r.status_code in [200, 201]:
             return True, "WordPress mis a jour"
@@ -952,7 +958,7 @@ def _uploader_ftp(html_final: str, chemin: str = None) -> tuple:
     ftp_cfg = _ftp_config()
     try:
         ftp = ftplib.FTP()
-        ftp.connect(ftp_cfg["host"], 21, timeout=30)
+        ftp.connect(ftp_cfg["host"], 21, timeout=settings.TIMEOUT_HTTP_LONG)
         ftp.login(ftp_cfg["user"], ftp_cfg["password"])
         if not chemin:
             racine  = ftp.nlst()
@@ -1005,7 +1011,7 @@ def creer_post_wordpress(contenu, sujet, date):
             f"{base}/posts",
             headers=_get_wp_headers(),
             json={"title": f"{sujet} — {date}", "content": contenu, "status": "publish"},
-            timeout=15
+            timeout=settings.TIMEOUT_HTTP_STANDARD
         )
         if r.status_code in [200, 201]:
             return True, "Post cree"
@@ -1018,8 +1024,11 @@ def supprimer_anciens_posts():
     if not base:
         return 0
     try:
-        r = requests.get(f"{base}/posts?per_page=100&status=publish,private,draft",
-                         headers=_get_wp_headers(), timeout=15)
+        r = requests.get(
+            f"{base}/posts?per_page=100&status=publish,private,draft",
+            headers=_get_wp_headers(),
+            timeout=settings.TIMEOUT_HTTP_STANDARD,
+        )
         posts = r.json() if r.status_code == 200 else []
         if not isinstance(posts, list):
             return 0
@@ -1027,8 +1036,11 @@ def supprimer_anciens_posts():
         for post in posts:
             titre = post.get("title", {}).get("rendered", "").lower()
             if "veille ia" in titre or "veille :" in titre:
-                requests.delete(f"{base}/posts/{post['id']}?force=true",
-                                headers=_get_wp_headers(), timeout=10)
+                requests.delete(
+                    f"{base}/posts/{post['id']}?force=true",
+                    headers=_get_wp_headers(),
+                    timeout=settings.TIMEOUT_HTTP_COURT,
+                )
                 supprimes += 1
         return supprimes
     except Exception:
@@ -1064,7 +1076,7 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None,
     tous_hrefs = {a["href"] for s in sessions for a in s.get("articles", []) if "href" in a}
 
     import time
-    nb_max            = max(1, min(int(limite), 50))
+    nb_max            = max(1, min(int(limite), settings.MAX_ARTICLES_PAR_RECHERCHE))
     nouveaux_articles = []
 
     for r in resultats_recherche:
@@ -1082,7 +1094,7 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None,
             "resume_ollama":  resume,
             "date_recherche": date,
         })
-        time.sleep(4)
+        time.sleep(settings.DELAI_RESUME_SECONDES)
 
     if not nouveaux_articles:
         statut("Aucun nouvel article — historique inchangé.")
@@ -1097,7 +1109,7 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None,
                 resume_precedent = rg
                 break
         statut("Synthèse globale…")
-        time.sleep(10)
+        time.sleep(settings.DELAI_SYNTHESE_SECONDES)
         resume_global = generer_resume_global(sujet, nouveaux_articles)
         if resume_precedent and not resume_global.startswith("Erreur"):
             if SequenceMatcher(None, normaliser(resume_global), normaliser(resume_precedent)).ratio() > 0.85:
