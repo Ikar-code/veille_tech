@@ -1,21 +1,5 @@
 # ============================================================
 # CRON.PY — Veille automatique (GitHub Actions, toutes les heures)
-#
-# Pour chaque utilisateur programmé à l'heure UTC courante :
-#   1. storage.set_user(user_id)       ← OBLIGATOIRE en premier
-#   2. srv.set_storage_context(storage) ← OBLIGATOIRE en second
-#   3. Charge sa config (FTP, WP, thème) via storage.charger_config()
-#   4. Recherche + résumés IA par sujet (srv.workflow_publier)
-#      → sauvegarde historique Supabase + publie WP + publie FTP
-#   5. Envoie email de synthèse
-#   6. Marque la dernière exécution
-#
-# ROOT CAUSE du bug précédent :
-#   charger_config_utilisateur(user_id) ne mettait PAS à jour
-#   _current_user_id dans storage.py.
-#   Donc storage.charger_historique() lisait _current_user_id=None
-#   → retournait {} → workflow_publier ne sauvegardait rien.
-#   FIX : toujours appeler storage.set_user(user_id) EN PREMIER.
 # ============================================================
 
 import os
@@ -47,7 +31,6 @@ GMAIL_PASSWORD = os.environ.get("GMAIL_PASSWORD", "")
 
 def generer_email_html(sujets_str: str, articles: list, resume_global: str) -> str:
     date = datetime.now().strftime("%d/%m/%Y")
-
     resume_html = ""
     for ligne in (resume_global or "").splitlines():
         ligne = ligne.strip()
@@ -56,16 +39,10 @@ def generer_email_html(sujets_str: str, articles: list, resume_global: str) -> s
         ligne = re.sub(r'\*\*', '', ligne)
         if ligne.startswith("—"):
             titre = ligne.lstrip("— ").rstrip(":").strip()
-            resume_html += (
-                f"<h3 style='color:#1565c0;margin:20px 0 6px 0;font-size:14px;'>"
-                f"— {titre}</h3>"
-            )
+            resume_html += f"<h3 style='color:#1565c0;margin:20px 0 6px 0;font-size:14px;'>— {titre}</h3>"
         elif ligne.startswith(("- ", "• ")):
             point = re.sub(r'\s*\[\d+\]', '', ligne.lstrip("-• ").strip())
-            resume_html += (
-                f"<div style='padding:3px 0 3px 12px;border-left:2px solid #bbdefb;"
-                f"margin:3px 0;font-size:13px;'>{point}</div>"
-            )
+            resume_html += f"<div style='padding:3px 0 3px 12px;border-left:2px solid #bbdefb;margin:3px 0;font-size:13px;'>{point}</div>"
         else:
             resume_html += f"<p style='margin:6px 0;font-size:13px;'>{ligne}</p>"
 
@@ -73,44 +50,32 @@ def generer_email_html(sujets_str: str, articles: list, resume_global: str) -> s
     for a in articles[:10]:
         dom = urlparse(a.get("href", "")).netloc
         pts = a.get("resume_ollama", [])
-        if pts and pts not in [["Contenu non accessible pour ce site."],
-                                ["Résumé non disponible."]]:
-            pts_li   = "".join(f"<li style='margin:4px 0;color:#444;'>{p}</li>"
-                               for p in pts[:3])
-            pts_html = (f"<ul style='margin:6px 0 0 0;padding-left:18px;"
-                        f"font-size:12px;'>{pts_li}</ul>")
+        if pts and pts not in [["Contenu non accessible pour ce site."], ["Résumé non disponible."]]:
+            pts_li   = "".join(f"<li style='margin:4px 0;color:#444;'>{p}</li>" for p in pts[:3])
+            pts_html = f"<ul style='margin:6px 0 0 0;padding-left:18px;font-size:12px;'>{pts_li}</ul>"
         else:
             pts_html = ""
         articles_html += f"""
-        <div style='margin-bottom:14px;padding:12px 14px;background:#f5f7ff;
-                    border-radius:6px;border-left:3px solid #1565c0;'>
-            <a href='{a.get("href","")}' style='color:#1565c0;font-weight:bold;
-               font-size:13px;text-decoration:none;'>{a.get("title","")}</a>
+        <div style='margin-bottom:14px;padding:12px 14px;background:#f5f7ff;border-radius:6px;border-left:3px solid #1565c0;'>
+            <a href='{a.get("href","")}' style='color:#1565c0;font-weight:bold;font-size:13px;text-decoration:none;'>{a.get("title","")}</a>
             <div style='font-size:11px;color:#888;margin:3px 0;'>{dom}</div>
             {pts_html}
         </div>"""
 
     return f"""<!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
-<body style='font-family:Arial,sans-serif;max-width:680px;margin:0 auto;
-             color:#333;background:#f9f9f9;'>
-    <div style='background:#1565c0;color:white;padding:24px 28px;
-                border-radius:8px 8px 0 0;'>
-        <div style='font-size:22px;font-weight:bold;margin-bottom:4px;'>
-            🔭 Veille Technologique</div>
+<body style='font-family:Arial,sans-serif;max-width:680px;margin:0 auto;color:#333;background:#f9f9f9;'>
+    <div style='background:#1565c0;color:white;padding:24px 28px;border-radius:8px 8px 0 0;'>
+        <div style='font-size:22px;font-weight:bold;margin-bottom:4px;'>🔭 Veille Technologique</div>
         <div style='opacity:.85;font-size:13px;'>{sujets_str} — {date}</div>
     </div>
     <div style='background:white;padding:24px 28px;'>
-        <h2 style='color:#1565c0;border-bottom:2px solid #e3f2fd;padding-bottom:8px;
-                   font-size:16px;margin-top:0;'>Synthèse</h2>
+        <h2 style='color:#1565c0;border-bottom:2px solid #e3f2fd;padding-bottom:8px;font-size:16px;margin-top:0;'>Synthèse</h2>
         {resume_html or "<p style='color:#888;font-style:italic;'>Résumé non disponible.</p>"}
-        <h2 style='color:#1565c0;border-bottom:2px solid #e3f2fd;padding-bottom:8px;
-                   font-size:16px;margin-top:28px;'>
-            Articles ({len(articles)})</h2>
+        <h2 style='color:#1565c0;border-bottom:2px solid #e3f2fd;padding-bottom:8px;font-size:16px;margin-top:28px;'>Articles ({len(articles)})</h2>
         {articles_html or "<p style='color:#888;font-style:italic;'>Aucun article.</p>"}
     </div>
-    <div style='background:#e3f2fd;padding:14px 28px;border-radius:0 0 8px 8px;
-                font-size:11px;color:#666;text-align:center;'>
+    <div style='background:#e3f2fd;padding:14px 28px;border-radius:0 0 8px 8px;font-size:11px;color:#666;text-align:center;'>
         Veille automatique — {date} · Pour désactiver : onglet Automatisation dans Veille IA
     </div>
 </body></html>"""
@@ -142,21 +107,12 @@ def envoyer_email(dest: str, sujet_mail: str, html: str) -> bool:
 def traiter_utilisateur(user_id: str, sujets_str: str, email_dest: str):
     print(f"\n  ▶ {email_dest} ({user_id[:8]}…)")
 
-    # ────────────────────────────────────────────────────────
-    # ÉTAPE 1 & 2 — OBLIGATOIRES ET EN PREMIER
-    # set_user() positionne _current_user_id dans storage.py.
-    # Toutes les fonctions storage.charger_*/sauvegarder_* lisent
-    # cette variable. Sans ça, elles retournent {} et ne sauvegardent rien.
-    # ────────────────────────────────────────────────────────
+    # ── 1. Active le storage pour cet utilisateur ──────────────
     storage.set_user(user_id)
     srv.set_storage_context(storage)
 
-    # ÉTAPE 3 — Charge la config via le storage correctement contextualisé
-    # On utilise charger_config() (PAS charger_config_utilisateur) car
-    # _current_user_id est maintenant positionné.
-    cfg = storage.charger_config()
-
-    # Thème personnalisé pour la page FTP
+    # ── 2. Charge sa config (FTP, WP, thème) ───────────────────
+    cfg   = storage.charger_config()
     theme = None
     if "theme_ftp" in cfg:
         try:
@@ -167,51 +123,98 @@ def traiter_utilisateur(user_id: str, sujets_str: str, email_dest: str):
     sous_sujets    = [s.strip() for s in sujets_str.split(",") if s.strip()]
     articles_email = []
     resumes_email  = []
+    date_jour      = datetime.now().strftime("%d/%m/%Y")
 
     for sujet in sous_sujets:
         print(f"    Sujet : «{sujet}»")
+        sujet_lower = sujet.strip().lower()
         try:
-            # ÉTAPE 4a — Recherche
-            resultats = srv.rechercher(
-                sujet,
-                callback_statut=lambda m: print(f"      {m}")
-            )
+            # ── 3. Recherche ──────────────────────────────────────
+            resultats = srv.rechercher(sujet, callback_statut=lambda m: print(f"      {m}"))
             if not resultats:
                 print("      Aucun résultat.")
                 continue
 
-            print(f"      {len(resultats)} résultats — publication…")
-
-            # ÉTAPE 4b — workflow_publier
-            # Grâce à set_user + set_storage_context fait en amont :
-            #   • _charger_historique_ctx() lit bien l'historique Supabase
-            #   • _sauvegarder_historique_ctx() écrit bien dans Supabase
-            #   • _ftp_config() lit bien la config FTP de l'utilisateur
-            res = srv.workflow_publier(
-                sujet,
-                resultats,
-                callback_statut=lambda msg: print(f"      {msg}"),
-                limite=int(cfg.get("auto_limite", 10)),
-                theme_ftp=theme,
-            )
-
-            wp_ok,  wp_msg  = res.get("wordpress", (False, "—"))
-            ftp_ok, ftp_msg = res.get("ftp",       (False, "—"))
-            print(f"      WP  : {'✓' if wp_ok  else '✗'} {wp_msg}")
-            print(f"      FTP : {'✓' if ftp_ok else '✗'} {ftp_msg}")
-
-            # ÉTAPE 5a — Récupère les articles depuis Supabase pour l'email
-            # workflow_publier a maintenant sauvegardé → on peut relire
+            # ── 4. Résumés IA + sauvegarde historique MANUELLEMENT ──
+            # On ne passe pas par workflow_publier pour le cron car
+            # on veut contrôler exactement ce qui est sauvegardé.
+            limite     = int(cfg.get("auto_limite", 10))
             historique = storage.charger_historique()
-            sessions   = historique.get(sujet.strip().lower(), [])
-            if sessions and isinstance(sessions[0], dict):
-                articles_du_jour = sessions[0].get("articles", [])
-                resume_du_jour   = sessions[0].get("resume_global", "")
-                articles_email.extend(articles_du_jour[:5])
-                if resume_du_jour and not resume_du_jour.startswith("Erreur"):
-                    resumes_email.append(
-                        f"— {sujet.upper()}\n{resume_du_jour[:800]}"
-                    )
+            sessions   = historique.get(sujet_lower, [])
+            tous_hrefs = {a["href"] for s in sessions for a in s.get("articles", []) if "href" in a}
+
+            nouveaux = []
+            for r in resultats:
+                href = r.get("href", "")
+                if not href or href in tous_hrefs:
+                    continue
+                if len(nouveaux) >= limite:
+                    break
+                print(f"      Résumé {len(nouveaux)+1}/{limite} : {r.get('title','')[:45]}…")
+                resume = srv.resumer_article_ollama(r.get("title",""), href, r.get("body",""))
+                nouveaux.append({
+                    "title":          r.get("title", ""),
+                    "href":           href,
+                    "score":          r.get("score", 0),
+                    "resume_ollama":  resume,
+                    "date_recherche": date_jour,
+                })
+                time.sleep(4)
+
+            if not nouveaux:
+                print("      Pas de nouveaux articles.")
+                continue
+
+            # Résumé global
+            print("      Synthèse globale…")
+            time.sleep(10)
+            resume_global = srv.generer_resume_global(sujet_lower, nouveaux)
+
+            # ── 5. Sauvegarde dans Supabase ───────────────────────
+            # storage.set_user est déjà actif → charger/sauvegarder_historique
+            # utilisent bien _current_user_id
+            session_du_jour = next((s for s in sessions if s.get("date") == date_jour), None)
+            if session_du_jour:
+                session_du_jour["articles"].extend(nouveaux)
+                session_du_jour["resume_global"] = resume_global
+            else:
+                sessions.insert(0, {
+                    "date":          date_jour,
+                    "articles":      nouveaux,
+                    "resume_global": resume_global,
+                })
+            historique[sujet_lower] = sessions
+
+            # Appel direct storage (pas via srv) pour être sûr que
+            # _current_user_id est bien positionné
+            storage.sauvegarder_historique(historique)
+            print(f"      ✓ {len(nouveaux)} articles sauvegardés dans Supabase")
+
+            # ── 6. Publication WordPress si configuré ─────────────
+            wp_ok = False
+            if cfg.get("wp_base") and cfg.get("wp_user") and cfg.get("wp_password"):
+                try:
+                    date     = datetime.now().strftime("%d/%m/%Y")
+                    contenu  = srv.generer_contenu_html(historique, date)
+                    page_id  = srv.obtenir_ou_creer_page()
+                    wp_ok, wp_msg = srv.publier_wordpress(contenu, page_id)
+                    print(f"      WP  : {'✓' if wp_ok else '✗'} {wp_msg}")
+                except Exception as e:
+                    print(f"      WP  : ✗ {e}")
+
+            # ── 7. Publication FTP si configuré ───────────────────
+            ftp_ok = False
+            if cfg.get("ftp_host") and cfg.get("ftp_user") and cfg.get("ftp_password"):
+                try:
+                    ftp_ok, ftp_msg = srv._publier_ftp_avec_historique(None, historique, theme)
+                    print(f"      FTP : {'✓' if ftp_ok else '✗'} {ftp_msg}")
+                except Exception as e:
+                    print(f"      FTP : ✗ {e}")
+
+            # Collecte pour l'email
+            articles_email.extend(nouveaux[:5])
+            if resume_global and not resume_global.startswith("Erreur"):
+                resumes_email.append(f"— {sujet.upper()}\n{resume_global[:800]}")
 
             time.sleep(5)
 
@@ -220,10 +223,10 @@ def traiter_utilisateur(user_id: str, sujets_str: str, email_dest: str):
             import traceback
             traceback.print_exc()
 
-    # ÉTAPE 6 — Marque la dernière exécution
+    # ── 8. Marque l'exécution ─────────────────────────────────
     storage.marquer_execution(user_id)
 
-    # ÉTAPE 5b — Envoie l'email
+    # ── 9. Envoi email ────────────────────────────────────────
     if not articles_email:
         print("    ⚠ Aucun article — email ignoré")
         return
@@ -231,13 +234,8 @@ def traiter_utilisateur(user_id: str, sujets_str: str, email_dest: str):
     date       = datetime.now().strftime("%d/%m/%Y")
     resume_all = "\n\n".join(resumes_email) if resumes_email else ""
     html       = generer_email_html(sujets_str, articles_email, resume_all)
-    titre_mail = (
-        f"Veille IA — {date} · "
-        f"{len(articles_email)} article(s) · "
-        f"{len(sous_sujets)} sujet(s)"
-    )
-
-    ok = envoyer_email(email_dest, titre_mail, html)
+    titre_mail = f"Veille IA — {date} · {len(articles_email)} article(s) · {len(sous_sujets)} sujet(s)"
+    ok         = envoyer_email(email_dest, titre_mail, html)
     print(f"    Email : {'✓ envoyé' if ok else '✗ ERREUR'} → {email_dest}")
 
 
@@ -248,11 +246,11 @@ def traiter_utilisateur(user_id: str, sujets_str: str, email_dest: str):
 def main():
     now_utc = datetime.now(timezone.utc)
     heure   = now_utc.hour
-    minute  = 0   # GitHub Actions tourne toutes les heures pile
+    minute  = 0
 
     print(f"\n{'='*56}")
     print(f"  Cron Veille IA — {now_utc.strftime('%d/%m/%Y %H:%M UTC')}")
-    print(f"  Cherche utilisateurs programmés à {heure:02d}h{minute:02d} UTC")
+    print(f"  Utilisateurs programmés à {heure:02d}h{minute:02d} UTC")
     print(f"{'='*56}")
 
     if not storage.SUPABASE_OK:
@@ -269,16 +267,14 @@ def main():
 
     for u in utilisateurs:
         user_id = u.get("user_id", "")
-        sujets  = u.get("sujets",  "").strip()
+        sujets  = u.get("sujets", "").strip()
         email   = storage.get_user_email(user_id)
-
         if not email:
             print(f"  ✗ Email introuvable pour {user_id[:8]}… — ignoré")
             continue
         if not sujets:
             print(f"  ✗ Aucun sujet pour {email} — ignoré")
             continue
-
         traiter_utilisateur(user_id, sujets, email)
 
     print(f"\n  Cron terminé — {datetime.now(timezone.utc).strftime('%H:%M UTC')}")

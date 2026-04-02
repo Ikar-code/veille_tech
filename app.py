@@ -543,394 +543,138 @@ def _render_theme_editor():
             st.success("Thème sauvegardé !")
 
 # ============================================================
-# PAGE AUTOMATISATION
+# À REMPLACER dans app.py — fonction page_historique()
 # ============================================================
-def page_auto():
-    st.markdown("# ⏰ Veille automatique")
-    st.markdown("### Recevez votre veille par email chaque jour à l'heure de votre choix")
-    st.markdown("---")
-    if not _est_abonne():
-        st.markdown(
-            '<div class="card card-mauve" style="padding:24px;text-align:center;">'
-            '<div style="font-size:20px;margin-bottom:8px;">🔒</div>'
-            '<div style="font-size:16px;font-weight:600;color:var(--mauve);margin-bottom:8px;">Fonctionnalité Premium</div>'
-            '<div style="font-size:13px;color:var(--subtext);">La veille automatique par email est réservée aux abonnés.</div>'
-            '</div>', unsafe_allow_html=True)
-        if st.button("✨ S'abonner à 2,99€/mois", type="primary"):
-            _goto("abonnement")
-        return
-    uid   = _user_id()
-    prefs = {}
-    if STORAGE_OK:
-        try:
-            prefs = storage.charger_veille_auto(uid) or {}
-        except Exception:
-            prefs = {}
-    st.markdown('<div class="card card-accent">', unsafe_allow_html=True)
-    st.markdown("#### Configurer votre veille automatique")
-    sujets = st.text_area("Sujets (séparés par des virgules)", value=prefs.get("sujets", ""),
-                           placeholder="ex: intelligence artificielle, cybersécurité, LLM", height=80)
-    st.markdown("#### Heure d'envoi")
-    st.markdown('<div style="font-size:12px;color:var(--subtext);margin-bottom:12px;">La Réunion = UTC+4 · France = UTC+1 (hiver) / UTC+2 (été)</div>', unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 1, 2])
-    with col1:
-        heure_utc = st.selectbox("Heure (UTC)", list(range(24)), index=int(prefs.get("heure", 4)),
-                                  format_func=lambda h: f"{h:02d}h")
-    with col2:
-        opts    = [0, 15, 30, 45]
-        min_val = int(prefs.get("minute", 0))
-        min_idx = opts.index(min_val) if min_val in opts else 0
-        minute_utc = st.selectbox("Minute", opts, index=min_idx, format_func=lambda m: f"{m:02d}")
-    with col3:
-        h_reunion = (heure_utc + 4) % 24
-        st.markdown(
-            f'<div class="metric-box" style="margin-top:20px;">'
-            f'<span class="metric-val" style="font-size:20px;">{h_reunion:02d}h{minute_utc:02d}</span>'
-            f'<span class="metric-lbl">Heure Réunion (UTC+4)</span></div>', unsafe_allow_html=True)
-    actif = st.toggle("Activer la veille automatique", value=bool(prefs.get("actif", True)))
-    st.markdown("</div>", unsafe_allow_html=True)
-    if prefs.get("derniere_execution"):
-        try:
-            d = datetime.fromisoformat(str(prefs["derniere_execution"]).replace("Z", "+00:00"))
-            st.markdown(f'<div style="font-size:12px;color:var(--subtext);margin-top:8px;">Dernière exécution : {d.strftime("%d/%m/%Y à %H:%M")} UTC</div>', unsafe_allow_html=True)
-        except Exception:
-            pass
-    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-    if st.button("💾 Enregistrer", type="primary"):
-        ok_sujets, msg_sujets = security.valider_texte_recherche(sujets, longueur_max=500)
-        if not ok_sujets:
-            st.error(msg_sujets)
-        elif not STORAGE_OK:
-            st.error("Module storage indisponible.")
-        else:
-            try:
-                ok = storage.sauvegarder_veille_auto(sujets.strip(), int(heure_utc), int(minute_utc), actif, uid)
-                if ok:
-                    st.success(f"Veille {'activée' if actif else 'désactivée'} — envoi à {h_reunion:02d}h{minute_utc:02d} (Réunion)")
-                else:
-                    st.error("Erreur Supabase.")
-            except Exception as e:
-                st.error(f"Erreur : {e}")
-    st.markdown("---")
-    st.markdown(
-        '<div class="card" style="padding:16px;">'
-        '<div style="font-size:13px;font-weight:600;margin-bottom:8px;">Comment ça fonctionne</div>'
-        '<div style="font-size:12px;color:var(--subtext);line-height:1.9;">'
-        '1. Un robot tourne automatiquement sur nos serveurs toutes les heures<br>'
-        '2. À l\'heure choisie, il lance la recherche sur vos sujets<br>'
-        '3. Il génère les résumés IA et vous envoie un email<br>'
-        '4. Vous n\'avez rien à faire — tout se passe sans connexion'
-        '</div></div>', unsafe_allow_html=True)
 
-# ============================================================
-# PAGE ABONNEMENT
-# ============================================================
-def page_abonnement():
-    st.markdown("# ✨ Abonnement")
-    st.markdown("---")
-    if _est_abonne():
-        st.markdown(
-            '<div class="card card-green" style="padding:24px;text-align:center;">'
-            '<div style="font-size:32px;margin-bottom:8px;">✅</div>'
-            '<div style="font-size:18px;font-weight:600;color:var(--green);margin-bottom:8px;">Abonnement actif</div>'
-            '<div style="font-size:13px;color:var(--subtext);">Recherches illimitées + veille email quotidienne.</div>'
-            '</div>', unsafe_allow_html=True)
-        st.info("Pour annuler, contactez support@veille-ia.fr")
-    else:
-        col_l, col_c, col_r = st.columns([1, 1.5, 1])
-        with col_c:
-            stripe_url = os.getenv("STRIPE_PAYMENT_LINK", "")
-            st.markdown(
-                '<div class="abonnement-box">'
-                '<div style="font-size:13px;color:var(--mauve);font-weight:600;letter-spacing:2px;text-transform:uppercase;margin-bottom:16px;">Veille IA Premium</div>'
-                '<div style="font-size:48px;font-weight:700;">2,99€</div>'
-                '<div style="font-size:14px;color:var(--subtext);margin-bottom:24px;">par mois · sans engagement</div>'
-                '<div style="text-align:left;margin-bottom:24px;font-size:13px;line-height:2;">'
-                '✔ Recherches illimitées<br>✔ Veille automatique par email<br>'
-                '✔ Historique complet<br>✔ Résumés IA par article<br>✔ Comparaison entre sessions'
-                '</div></div>', unsafe_allow_html=True)
-            if stripe_url:
-                st.markdown(
-                    f'<a href="{stripe_url}" target="_blank" style="display:block;text-align:center;'
-                    f'background:var(--mauve);color:#1e1e2e;font-weight:700;font-size:15px;'
-                    f'padding:14px;border-radius:10px;text-decoration:none;">'
-                    f'✨ S\'abonner — 2,99€/mois</a>', unsafe_allow_html=True)
-            else:
-                st.warning("Paiement Stripe disponible prochainement.")
-
-# ============================================================
-# PAGE VEILLE
-# ============================================================
-def page_veille():
-    st.markdown("# 🔍 Nouvelle veille")
-    st.markdown("### Recherche, scoring et publication")
-    st.markdown("---")
-
-    uid    = _user_id()
-    abonne = _est_abonne()
-
-    if AUTH_OK and uid:
-        if not abonne:
-            quota = auth.get_quota(uid)
-            reste = max(0, auth.RECHERCHES_GRATUITES - quota.get("searches_used", 0))
-            if reste == 0:
-                st.markdown(
-                    '<div class="card card-red" style="padding:24px;text-align:center;">'
-                    '<div style="font-size:20px;margin-bottom:8px;">🔒</div>'
-                    '<div style="font-size:16px;font-weight:600;color:var(--red);margin-bottom:8px;">Limite gratuite atteinte</div>'
-                    '<div style="font-size:13px;color:var(--subtext);">Abonnez-vous pour un accès illimité.</div>'
-                    '</div>', unsafe_allow_html=True)
-                if st.button("✨ S'abonner à 2,99€/mois", type="primary"):
-                    _goto("abonnement")
-                return
-            st.markdown(f'<div style="margin-bottom:16px;">{_badge(f"Compte gratuit · {reste} recherche(s) restante(s)","yellow")}</div>', unsafe_allow_html=True)
-        else:
-            st.markdown(f'<div style="margin-bottom:16px;">{_badge("✨ Abonné · Recherches illimitées","mauve")}</div>', unsafe_allow_html=True)
-
-    col_form, col_log = st.columns([1, 1], gap="large")
-
-    with col_form:
-        st.markdown('<div class="card card-accent">', unsafe_allow_html=True)
-        sujet  = st.text_area("Sujets de recherche",
-                               placeholder="ex: cybersécurité IA, deepfake, LLM Europe",
-                               height=90, key="sujet_input")
-        c1, c2 = st.columns(2)
-        with c1:
-            limite = st.number_input("Articles max à résumer", min_value=1, max_value=50, value=10, step=1)
-        st.markdown("</div>", unsafe_allow_html=True)
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-
-        c1, c2 = st.columns(2)
-        with c1:
-            btn_rechercher = st.button(
-                "🔍 Rechercher", use_container_width=True,
-                disabled=st.session_state["en_cours"],
-                type="primary", key="btn_rechercher")
-        with c2:
-            if st.button("🗑 Réinitialiser", use_container_width=True, key="btn_reset_veille"):
-                st.session_state["logs"]               = []
-                st.session_state["resultats"]          = []
-                st.session_state["recherche_terminee"] = False
-                st.session_state["derniere_publication"] = None
-                st.rerun()
-
-        if st.session_state["resultats"] and not st.session_state["en_cours"]:
-            st.markdown("---")
-            nb_r = len(st.session_state["resultats"])
-            st.markdown(
-                f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">'
-                f'<span style="font-family:Space Mono;font-size:13px;">Résultats</span>'
-                f'{_badge(f"{nb_r} articles trouvés","green")}</div>',
-                unsafe_allow_html=True)
-            for r in st.session_state["resultats"][:8]:
-                dom   = urlparse(r.get("href", "")).netloc
-                score = r.get("score", 0)
-                c     = "green" if score >= 80 else "yellow" if score >= 50 else "red"
-                st.markdown(
-                    f'<div class="card" style="padding:10px 14px;margin-bottom:6px;">'
-                    f'<div style="font-size:13px;font-weight:500;margin-bottom:3px;">{r.get("title","")[:72]}…</div>'
-                    f'<div style="display:flex;gap:8px;">'
-                    f'<span style="font-size:11px;color:var(--subtext)">{dom}</span>'
-                    f'{_badge(f"score {score}",c)}</div></div>',
-                    unsafe_allow_html=True)
-            if nb_r > 8:
-                st.caption(f"… et {nb_r - 8} autres articles")
-
-    with col_log:
-        if st.session_state["en_cours"]:
-            sujet_affiche = st.session_state.get("sujet_courant", "…")
-            dernier_log   = st.session_state.get("dernier_log", "Initialisation…")
-            st.markdown(f"""
-            <div class="launch-overlay">
-                <div class="scan-line"></div>
-                <div class="launch-icon-wrap">
-                    <span class="launch-icon">🔭</span>
-                    <div class="pulse-ring"></div><div class="pulse-ring"></div><div class="pulse-ring"></div>
-                </div>
-                <div class="launch-title">RECHERCHE EN COURS</div>
-                <div class="launch-subject">« {sujet_affiche} »</div>
-                <div class="launch-steps">
-                    <div class="launch-step"><span class="step-icon">🔍</span><span class="step-label">DuckDuckGo</span></div>
-                    <div class="launch-step"><span class="step-icon">📡</span><span class="step-label">Flux RSS</span></div>
-                    <div class="launch-step"><span class="step-icon">⚙️</span><span class="step-label">Scoring</span></div>
-                    <div class="launch-step"><span class="step-icon">🧹</span><span class="step-label">Dédup.</span></div>
-                </div>
-                <div class="typing-dots"><span></span><span></span><span></span></div>
-                <div class="launch-status">{dernier_log}</div>
-            </div>""", unsafe_allow_html=True)
-        else:
-            st.markdown(
-                '<div style="font-family:Space Mono;font-size:12px;color:var(--subtext);'
-                'text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">— Journal</div>',
-                unsafe_allow_html=True)
-            log_html = "<br>".join(
-                st.session_state["logs"][-40:]
-                if st.session_state["logs"]
-                else ["<span style='color:var(--subtext)'>En attente de lancement…</span>"])
-            st.markdown(f'<div class="log-box">{log_html}</div>', unsafe_allow_html=True)
-
-    if btn_rechercher and sujet.strip() and not st.session_state["en_cours"]:
-        ok_sujet, msg_sujet = security.valider_texte_recherche(sujet, longueur_max=300)
-        if not ok_sujet:
-            st.error(msg_sujet)
-            return
-        if AUTH_OK and uid:
-            ok_q, msg_q = auth.peut_rechercher(uid)
-            if not ok_q:
-                st.error(msg_q)
-                return
-        st.session_state.update({
-            "en_cours":           True,
-            "resultats":          [],
-            "sujet_courant":      sujet.strip(),
-            "limite_courante":    int(limite),
-            "logs":               [],
-            "dernier_log":        "Initialisation…",
-            "recherche_terminee": False,
-            "derniere_publication": None,
-        })
-        st.rerun()
-
-    elif st.session_state["en_cours"] and st.session_state.get("sujet_courant"):
-        sujet_run = st.session_state["sujet_courant"]
-        try:
-            resultats = srv.rechercher(sujet_run, callback_statut=_log)
-            st.session_state["resultats"] = resultats
-            _log(f"✅ {len(resultats)} résultats trouvés — prêt à publier")
-            if AUTH_OK and uid and not abonne:
-                auth.incrementer_quota(uid)
-        except Exception as e:
-            _log(f"❌ Erreur : {e}")
-        st.session_state["en_cours"]           = False
-        st.session_state["dernier_log"]        = ""
-        st.session_state["recherche_terminee"] = True
-        st.rerun()
-
-    elif btn_rechercher and not sujet.strip():
-        st.warning("Entrez au moins un sujet.")
-
-    if st.session_state.get("recherche_terminee") and st.session_state["resultats"] and not st.session_state["en_cours"]:
-        _render_panneau_publication(uid, abonne)
-
-    if not st.session_state["en_cours"]:
-        _render_theme_editor()
-
-
-def _render_panneau_publication(uid, abonne):
-    nb_r   = len(st.session_state["resultats"])
-    limite = st.session_state.get("limite_courante", 10)
-    sujet  = st.session_state.get("sujet_courant", "")
-
-    st.markdown("---")
-    st.markdown(
-        '<div style="font-family:Space Mono;font-size:14px;color:var(--green);margin-bottom:4px;">'
-        '✅ Recherche terminée — choisissez où publier</div>',
-        unsafe_allow_html=True)
-    st.markdown(
-        f'<div style="font-size:12px;color:var(--subtext);margin-bottom:16px;">'
-        f'{nb_r} articles trouvés pour <strong style="color:var(--text)">{sujet}</strong>. '
-        f'Les résumés IA seront générés au moment de la publication.</div>',
-        unsafe_allow_html=True)
-
-    col_p1, col_p2 = st.columns(2)
-    with col_p1:
-        nb_articles = st.number_input(
-            "Articles à résumer et publier",
-            min_value=1, max_value=min(nb_r, 50),
-            value=min(limite, nb_r),
-            step=1, key="pub_nb_articles")
-    with col_p2:
-        mode_pub = st.selectbox(
-            "Mode WordPress", ["Mise à jour page", "Créer un post"], key="pub_mode")
-
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-    col_b1, col_b2, col_b3 = st.columns(3)
-
-    with col_b1:
-        btn_wp = st.button("🌐 Publier sur WordPress", use_container_width=True,
-                           key="btn_pub_wp", disabled=st.session_state.get("en_cours_pub", False))
-    with col_b2:
-        btn_ftp = st.button("📡 Publier sur FTP", use_container_width=True,
-                            key="btn_pub_ftp", disabled=st.session_state.get("en_cours_pub", False))
-    with col_b3:
-        btn_both = st.button("🚀 Publier partout", use_container_width=True, type="primary",
-                             key="btn_pub_both", disabled=st.session_state.get("en_cours_pub", False))
-
-    pub = st.session_state.get("derniere_publication")
-    if pub:
-        col_r1, col_r2 = st.columns(2)
-        with col_r1:
-            ok  = pub.get("ok_wp")
-            msg = pub.get("msg_wp", "")
-            if ok is not None:
-                ic = "✅" if ok else "❌"
-                cl = "var(--green)" if ok else "var(--red)"
-                st.markdown(
-                    f'<div class="card" style="border-left:3px solid {cl};padding:12px 14px;margin-top:8px;">'
-                    f'<div style="font-size:12px;font-weight:600;color:{cl};">{ic} WordPress</div>'
-                    f'<div style="font-size:12px;color:var(--subtext);margin-top:4px;">{msg}</div>'
-                    f'</div>', unsafe_allow_html=True)
-        with col_r2:
-            ok  = pub.get("ok_ftp")
-            msg = pub.get("msg_ftp", "")
-            if ok is not None:
-                ic = "✅" if ok else "❌"
-                cl = "var(--green)" if ok else "var(--red)"
-                st.markdown(
-                    f'<div class="card" style="border-left:3px solid {cl};padding:12px 14px;margin-top:8px;">'
-                    f'<div style="font-size:12px;font-weight:600;color:{cl};">{ic} FTP / Page web</div>'
-                    f'<div style="font-size:12px;color:var(--subtext);margin-top:4px;">{msg}</div>'
-                    f'</div>', unsafe_allow_html=True)
-
-    cible_wp  = btn_wp  or btn_both
-    cible_ftp = btn_ftp or btn_both
-
-    if (cible_wp or cible_ftp) and not st.session_state.get("en_cours_pub", False):
-        st.session_state["en_cours_pub"] = True
-        pub_result = {"ok_wp": None, "msg_wp": "", "ok_ftp": None, "msg_ftp": ""}
-
-        with st.spinner("Génération des résumés IA et publication…"):
-            try:
-                if mode_pub == "Mise à jour page" or cible_ftp:
-                    res = srv.workflow_publier(
-                        sujet,
-                        st.session_state["resultats"],
-                        callback_statut=_log,
-                        limite=int(nb_articles),
-                    )
-                    if "wordpress" in res:
-                        pub_result["ok_wp"]  = res["wordpress"][0]
-                        pub_result["msg_wp"] = res["wordpress"][1]
-                    if "ftp" in res:
-                        pub_result["ok_ftp"]  = res["ftp"][0]
-                        pub_result["msg_ftp"] = res["ftp"][1]
-                elif mode_pub == "Créer un post" and cible_wp:
-                    ok, msg = srv.workflow_creer_post(
-                        sujet,
-                        st.session_state["resultats"][:int(nb_articles)],
-                        callback_statut=_log)
-                    pub_result["ok_wp"]  = ok
-                    pub_result["msg_wp"] = msg
-            except Exception as e:
-                _log(f"❌ Erreur publication : {e}")
-                pub_result["msg_wp"]  = f"Erreur : {e}"
-                pub_result["msg_ftp"] = f"Erreur : {e}"
-
-        st.session_state["derniere_publication"] = pub_result
-        st.session_state["en_cours_pub"]         = False
-        st.rerun()
-
-# ============================================================
-# PAGE HISTORIQUE
-# ============================================================
 def page_historique():
     st.markdown("# 📚 Historique des veilles")
     st.markdown("---")
+
     h = _historique()
     sujets = [k for k in h if not k.startswith("__") and isinstance(h[k], list)]
+
+    # ── Import depuis un fichier HTML ─────────────────────────
+    with st.expander("📥 Importer depuis un fichier veille-ia.html"):
+        st.markdown(
+            '<div style="font-size:12px;color:var(--subtext);margin-bottom:12px;">'
+            'Si vous avez un ancien fichier <code>veille-ia.html</code> exporté depuis '
+            'cette application, vous pouvez l\'importer ici pour récupérer son historique '
+            'dans votre compte.</div>', unsafe_allow_html=True)
+
+        fichier = st.file_uploader(
+            "Sélectionnez le fichier veille-ia.html",
+            type=["html"],
+            key="import_html",
+            label_visibility="collapsed")
+
+        if fichier:
+            try:
+                contenu_html = fichier.read().decode("utf-8", errors="replace")
+                # Extrait le JSON embarqué (marqueur _FTP_DATA_MARKER)
+                marker_start = "<!--VEILLE_DATA:"
+                marker_end   = ":END_VEILLE_DATA-->"
+                debut = contenu_html.find(marker_start)
+                fin   = contenu_html.find(marker_end)
+
+                if debut == -1 or fin == -1:
+                    st.error(
+                        "Aucune donnée trouvée dans ce fichier. "
+                        "Seuls les fichiers générés par cette application contiennent les données.")
+                else:
+                    json_str  = contenu_html[debut + len(marker_start):fin]
+                    historique_import = json.loads(json_str)
+                    sujets_import = [k for k in historique_import if not k.startswith("__")]
+
+                    st.markdown(
+                        f'<div style="font-size:13px;color:var(--green);margin:8px 0;">'
+                        f'✅ {len(sujets_import)} sujet(s) trouvé(s) : '
+                        f'<strong>{", ".join(sujets_import)}</strong></div>',
+                        unsafe_allow_html=True)
+
+                    # Compte les sessions et articles
+                    total_sessions = sum(
+                        len(v) for k, v in historique_import.items()
+                        if not k.startswith("__") and isinstance(v, list))
+                    total_articles = sum(
+                        len(s.get("articles", []))
+                        for k, v in historique_import.items()
+                        if not k.startswith("__") and isinstance(v, list)
+                        for s in v if isinstance(s, dict))
+
+                    st.markdown(
+                        f'<div style="font-size:12px;color:var(--subtext);margin-bottom:12px;">'
+                        f'{total_sessions} session(s) · {total_articles} article(s)</div>',
+                        unsafe_allow_html=True)
+
+                    col_i1, col_i2 = st.columns(2)
+                    with col_i1:
+                        mode_import = st.radio(
+                            "Mode d'import",
+                            ["Fusionner avec l'existant", "Remplacer l'existant"],
+                            key="mode_import",
+                            help="Fusionner : conserve vos données actuelles et ajoute celles du fichier. Remplacer : écrase tout.")
+
+                    with col_i2:
+                        if st.button("📥 Importer", type="primary",
+                                     use_container_width=True, key="btn_importer"):
+                            try:
+                                if mode_import == "Fusionner avec l'existant":
+                                    # Fusionne session par session
+                                    h_actuel = _historique()
+                                    for sujet_imp, sessions_imp in historique_import.items():
+                                        if sujet_imp.startswith("__") or not isinstance(sessions_imp, list):
+                                            continue
+                                        if sujet_imp not in h_actuel:
+                                            h_actuel[sujet_imp] = []
+                                        # Index par date pour éviter les doublons
+                                        dates_existantes = {
+                                            s.get("date"): i
+                                            for i, s in enumerate(h_actuel[sujet_imp])
+                                            if isinstance(s, dict)
+                                        }
+                                        for session in sessions_imp:
+                                            if not isinstance(session, dict):
+                                                continue
+                                            date_s = session.get("date", "")
+                                            if date_s in dates_existantes:
+                                                # Met à jour si plus d'articles
+                                                idx = dates_existantes[date_s]
+                                                art_existants = h_actuel[sujet_imp][idx].get("articles", [])
+                                                art_import    = session.get("articles", [])
+                                                if len(art_import) > len(art_existants):
+                                                    h_actuel[sujet_imp][idx] = session
+                                            else:
+                                                h_actuel[sujet_imp].append(session)
+                                    # Sauvegarde dans Supabase
+                                    if STORAGE_OK:
+                                        storage.sauvegarder_historique(h_actuel)
+                                    else:
+                                        srv.sauvegarder_historique(h_actuel)
+                                else:
+                                    # Remplace tout
+                                    if STORAGE_OK:
+                                        storage.sauvegarder_historique(historique_import)
+                                    else:
+                                        srv.sauvegarder_historique(historique_import)
+
+                                st.success(
+                                    f"✅ Import réussi — "
+                                    f"{len(sujets_import)} sujet(s), "
+                                    f"{total_articles} article(s) importés dans Supabase.")
+                                st.rerun()
+
+                            except Exception as e:
+                                st.error(f"Erreur lors de l'import : {e}")
+
+            except Exception as e:
+                st.error(f"Erreur lecture fichier : {e}")
+
     if not sujets:
-        st.info("Aucun historique. Lancez une première veille.")
+        st.info("Aucun historique. Lancez une première veille ou importez un fichier HTML.")
         return
+
+    st.markdown("---")
+
     col_g, col_d = st.columns([1, 2], gap="large")
     with col_g:
         sujet_sel = st.selectbox("Sujet à afficher", sujets, key="hist_sujet_sel")
@@ -938,16 +682,20 @@ def page_historique():
         st.markdown(
             f'<div class="metric-box" style="margin:12px 0;">'
             f'<span class="metric-val">{len(sessions)}</span>'
-            f'<span class="metric-lbl">Sessions</span></div>', unsafe_allow_html=True)
+            f'<span class="metric-lbl">Sessions</span></div>',
+            unsafe_allow_html=True)
         st.markdown("---")
         st.markdown("#### Supprimer des sujets")
         sujets_a_supprimer = st.multiselect(
-            "Sélectionnez les sujets à supprimer", options=sujets, default=[],
-            key="sujets_suppr", placeholder="Choisissez un ou plusieurs sujets…")
+            "Sélectionnez les sujets à supprimer",
+            options=sujets, default=[],
+            key="sujets_suppr",
+            placeholder="Choisissez un ou plusieurs sujets…")
         if sujets_a_supprimer:
             st.markdown(
                 f'<div style="font-size:12px;color:var(--red);margin:6px 0;">'
-                f'⚠️ {len(sujets_a_supprimer)} sujet(s) sélectionné(s)</div>', unsafe_allow_html=True)
+                f'⚠️ {len(sujets_a_supprimer)} sujet(s) sélectionné(s)</div>',
+                unsafe_allow_html=True)
             if st.button(f"🗑 Supprimer {len(sujets_a_supprimer)} sujet(s)",
                          type="secondary", use_container_width=True, key="btn_suppr_sel"):
                 for s in sujets_a_supprimer:
@@ -956,10 +704,12 @@ def page_historique():
                 st.rerun()
         st.markdown("---")
         with st.expander("⚠️ Tout effacer"):
-            if st.button("🗑 Effacer tout", type="secondary", use_container_width=True, key="btn_eff_tout"):
+            if st.button("🗑 Effacer tout", type="secondary",
+                         use_container_width=True, key="btn_eff_tout"):
                 _effacer_tout()
                 st.success("Historique effacé.")
                 st.rerun()
+
     with col_d:
         for i, session in enumerate(sessions):
             if not isinstance(session, dict):
@@ -991,7 +741,8 @@ def page_historique():
                         f'<a href="{a.get("href","")}" target="_blank" style="color:var(--blue);font-size:13px;font-weight:500">{a.get("title","")[:80]}</a>'
                         f'<span class="badge badge-blue">{score}</span></div>'
                         f'<div style="font-size:11px;color:var(--subtext);margin-top:4px">{dom}</div>'
-                        f'{pts_html}</div>', unsafe_allow_html=True)
+                        f'{pts_html}</div>',
+                        unsafe_allow_html=True)
 
 # ============================================================
 # PAGE COMPARAISON
