@@ -17,6 +17,7 @@ except Exception as e:
 
 import serveur as srv
 import security
+from veille_html_import import parse_veille_html_file
 
 AUTH_OK = False
 try:
@@ -109,7 +110,7 @@ hr{border-color:var(--border)!important;margin:16px 0!important;}
 .pub-panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-top:20px;}
 </style>
 """, unsafe_allow_html=True)
-
+    
 # ============================================================
 # THÈME PAR DÉFAUT
 # ============================================================
@@ -247,6 +248,38 @@ def _effacer_tout():
         except Exception:
             pass
     srv.effacer_historique()
+
+
+def _fusionner_historique_import(h_existant: dict, h_import: dict) -> dict:
+    out = dict(h_existant)
+    for sujet, sessions in h_import.items():
+        if sujet.startswith("__") or not isinstance(sessions, list):
+            continue
+        k = (sujet or "").strip().lower()
+        if not k:
+            continue
+        if k not in out:
+            out[k] = []
+        exist_dates = {s.get("date") for s in out[k] if isinstance(s, dict)}
+        for s in sessions:
+            if not isinstance(s, dict):
+                continue
+            d = s.get("date")
+            if d and d not in exist_dates:
+                out[k].append(s)
+                exist_dates.add(d)
+    return out
+
+
+def _sauvegarder_historique_complet(h):
+    if STORAGE_OK:
+        try:
+            storage.sauvegarder_historique(h)
+            return
+        except Exception:
+            pass
+    srv.sauvegarder_historique(h)
+
 
 def _activer_storage(user_id):
     if STORAGE_OK and user_id:
@@ -928,8 +961,39 @@ def page_historique():
     st.markdown("---")
     h = _historique()
     sujets = [k for k in h if not k.startswith("__") and isinstance(h[k], list)]
+
+    with st.expander("📥 Importer depuis un fichier veille-ia.html", expanded=not sujets):
+        st.markdown(
+            "Les **nouveaux** fichiers générés par l’app contiennent des données cachées "
+            "pour un import fidèle. Les **anciens** exports HTML (sans ce bloc) peuvent "
+            "être **reconstruits automatiquement** à partir du tableau et des résumés."
+        )
+        fichier = st.file_uploader(
+            "Fichier veille-ia.html",
+            type=["html"],
+            key="import_veille_html",
+        )
+        if fichier is not None:
+            try:
+                contenu_html = fichier.read().decode("utf-8", errors="replace")
+            except Exception as e:
+                st.error(f"Lecture impossible : {e}")
+            else:
+                hist_imp, msg_import = parse_veille_html_file(contenu_html)
+                if hist_imp:
+                    st.caption(msg_import)
+                    ns = len([k for k in hist_imp if not k.startswith("__")])
+                    st.success(f"{ns} sujet(s) détecté(s) — prêt à fusionner.")
+                    if st.button("Fusionner avec mon historique", type="primary", key="btn_merge_hist"):
+                        merged = _fusionner_historique_import(h, hist_imp)
+                        _sauvegarder_historique_complet(merged)
+                        st.success("Historique mis à jour.")
+                        st.rerun()
+                else:
+                    st.warning(msg_import)
+
     if not sujets:
-        st.info("Aucun historique. Lancez une première veille.")
+        st.info("Aucun historique. Lancez une première veille ou importez un fichier HTML ci-dessus.")
         return
     col_g, col_d = st.columns([1, 2], gap="large")
     with col_g:

@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 from html.parser import HTMLParser
 from difflib import SequenceMatcher
 import settings
+from veille_html_import import format_embedded_historique
 
 try:
     import feedparser
@@ -853,8 +854,9 @@ def generer_contenu_html(historique, date):
         idx += 1
     return contenu
 
-def generer_html_complet(contenu_body, date):
+def generer_html_complet(contenu_body, date, historique_embed=None):
     ts = datetime.now().strftime("%Y%m%d%H%M%S")
+    embed = format_embedded_historique(historique_embed) if historique_embed else ""
     return f"""<!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -880,11 +882,12 @@ p{{color:gray;font-size:13px;}}
 <body>
 {contenu_body}
 <p style="margin-top:30px;text-align:center;font-size:11px;color:#45475a;">Mis à jour le {date} — Veille technologique automatisée</p>
+{embed}
 </body>
 </html>"""
 
 
-def generer_html_complet_theme(contenu_body: str, date: str, theme: dict) -> str:
+def generer_html_complet_theme(contenu_body: str, date: str, theme: dict, historique_embed=None) -> str:
     bg     = theme.get("bg",     "#1e1e2e")
     surf   = theme.get("surf",   "#181825")
     ov     = theme.get("ov",     "#313244")
@@ -898,6 +901,7 @@ def generer_html_complet_theme(contenu_body: str, date: str, theme: dict) -> str
     yel    = theme.get("yel",    "#f9e2af")
     ptitle = theme.get("ptitle", "Veille Technologique IA")
     ts = datetime.now().strftime("%Y%m%d%H%M%S")
+    embed = format_embedded_historique(historique_embed) if historique_embed else ""
     return f"""<!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -926,6 +930,7 @@ button{{cursor:pointer;background:{ov};color:{txt};border:1px solid {brd};
 <body>
 {contenu_body}
 <p style="margin-top:30px;text-align:center;font-size:11px;color:{brd};">Mis à jour le {date} — Veille technologique automatisée</p>
+{embed}
 </body>
 </html>"""
 
@@ -988,9 +993,9 @@ def _publier_ftp_avec_historique(contenu_html_ignoré, historique_actuel: dict, 
     date_maj = datetime.now().strftime("%d/%m/%Y")
     contenu  = generer_contenu_html(historique_actuel, date_maj)
     if theme:
-        html_final = generer_html_complet_theme(contenu, date_maj, theme)
+        html_final = generer_html_complet_theme(contenu, date_maj, theme, historique_actuel)
     else:
-        html_final = generer_html_complet(contenu, date_maj)
+        html_final = generer_html_complet(contenu, date_maj, historique_actuel)
     ok, msg = _uploader_ftp(html_final)
     if ok:
         nb_sujets   = len([k for k in historique_actuel if not k.startswith("__")])
@@ -1050,13 +1055,6 @@ def supprimer_anciens_posts():
 # WORKFLOW COMPLET
 # ============================================================
 
-# ============================================================
-# PATCH serveur.py
-# Remplace la signature et le bloc de publication final
-# dans la fonction workflow_publier() par ce code.
-# Seule la signature + les 10 dernières lignes changent.
-# ============================================================
-
 def workflow_publier(sujet, resultats_recherche, callback_statut=None,
                      limite=12, theme_ftp: dict = None,
                      publier_wp: bool = True, publier_ftp: bool = True):
@@ -1099,7 +1097,7 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None,
     if not nouveaux_articles:
         statut("Aucun nouvel article — historique inchangé.")
         contenu      = generer_contenu_html(historique, date)
-        html_complet = generer_html_complet(contenu, date)
+        html_complet = generer_html_complet(contenu, date, historique)
     else:
         nouveaux_articles = detecter_doublons_contenu(nouveaux_articles, sessions)
         resume_precedent  = ""
@@ -1125,7 +1123,7 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None,
         _sauvegarder_historique_ctx(historique)
         statut("Génération HTML…")
         contenu      = generer_contenu_html(historique, date)
-        html_complet = generer_html_complet(contenu, date)
+        html_complet = generer_html_complet(contenu, date, historique)
 
     resultats_pub = {}
 
