@@ -5,6 +5,7 @@ Lit la configuration depuis config.json et envoie un email de synthèse.
 """
 import os
 import sys
+import json
 import smtplib
 import re
 from email.mime.multipart import MIMEMultipart
@@ -111,6 +112,12 @@ def main():
     sous_sujets = [s.strip() for s in SUJETS.split(",") if s.strip()]
     publier_wp  = cfg.get("auto_publier_wp", True)
     limite      = cfg.get("auto_limite", 15)
+    theme_ftp   = None
+    if cfg.get("theme_ftp"):
+        try:
+            theme_ftp = json.loads(cfg["theme_ftp"]) if isinstance(cfg["theme_ftp"], str) else cfg["theme_ftp"]
+        except Exception:
+            theme_ftp = None
 
     for sujet in sous_sujets:
         print(f"\n=== Veille : {sujet} ===")
@@ -131,7 +138,8 @@ def main():
                 sujet,
                 resultats,
                 callback_statut=lambda msg: print(f"  {msg}"),
-                limite=limite
+                limite=limite,
+                theme_ftp=theme_ftp,
             )
             print(f"  WordPress : {res.get('wordpress',(False,'?'))[1]}")
             print(f"  FTP       : {res.get('ftp',(False,'?'))[1]}")

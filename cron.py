@@ -195,7 +195,7 @@ def traiter_utilisateur(user_id: str, sujets_str: str, email_dest: str):
             if cfg.get("wp_base") and cfg.get("wp_user") and cfg.get("wp_password"):
                 try:
                     date     = datetime.now().strftime("%d/%m/%Y")
-                    contenu  = srv.generer_contenu_html(historique, date)
+                    contenu  = srv.generer_contenu_html(historique, date, theme)
                     page_id  = srv.obtenir_ou_creer_page()
                     wp_ok, wp_msg = srv.publier_wordpress(contenu, page_id)
                     print(f"      WP  : {'✓' if wp_ok else '✗'} {wp_msg}")
