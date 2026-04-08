@@ -222,13 +222,19 @@ def tester_connexion_wp(url, user, pwd):
                          timeout=_TIMEOUT_COURT)
         if r.status_code == 200:
             return True, f"Connexion reussie ! Connecte : {r.json().get('name', user)}"
-        elif r.status_code == 401: return False, "Identifiants incorrects."
-        elif r.status_code == 403: return False, "Acces refuse."
-        elif r.status_code == 404: return False, "URL introuvable."
-        else: return False, f"Erreur {r.status_code}."
+        elif r.status_code == 401:
+            return False, "Identifiants incorrects."
+        elif r.status_code == 403:
+            return False, "Acces refuse."
+        elif r.status_code == 404:
+            return False, "URL introuvable."
+        else:
+            return False, f"Erreur {r.status_code}."
     except requests.exceptions.ConnectionError:
         est_local = any(x in url.lower() for x in ["localhost",".local","127.0.0.1"])
-        return False, "Site local inaccessible." if est_local else "Site distant inaccessible."
+        if est_local:
+            return False, "Site local inaccessible."
+        return False, "Site distant inaccessible."
     except requests.exceptions.Timeout:
         return False, "Delai depasse."
     except Exception as e:
@@ -775,78 +781,33 @@ def rechercher(sujet_brut, callback_statut=None):
 _CSS_VUES = """
 *{box-sizing:border-box}
 body{margin:0;padding:0}
-#vue-selector{
-    display:flex;align-items:center;
-    padding:12px 20px;background:var(--surf);
-    border-bottom:1px solid var(--brd);
-    position:sticky;top:0;z-index:100;
-}
-.vue-btn{
-    background:transparent;color:var(--sub);
-    border:1px solid var(--brd);border-radius:6px;
-    padding:6px 14px;font-size:12px;cursor:pointer;margin-right:6px;
-    transition:all .15s;
-}
-.vue-btn:hover,.vue-btn.active{background:var(--blue);color:var(--bg);border-color:var(--blue)}
+
 .maj-date{color:var(--sub);font-size:12px;margin:10px 20px 0}
 hr{border:none;border-top:1px solid var(--brd);margin:6px 20px 16px}
-/* ── Onglets ── */
-.onglets-nav{
-    display:flex;flex-wrap:wrap;gap:6px;
-    padding:12px 20px;background:var(--surf);
-    border-bottom:1px solid var(--brd);
-    position:sticky;top:49px;z-index:99;
-}
-.onglet-btn{
-    background:transparent;color:var(--sub);
-    border:1px solid var(--brd);border-radius:20px;
-    padding:6px 16px;font-size:13px;cursor:pointer;transition:all .15s;
-}
-.onglet-btn:hover,.onglet-btn.active{background:var(--blue);color:var(--bg);border-color:var(--blue)}
-.onglets-body{padding:20px}
-/* ── Accordéon ── */
-.acc-item{border-bottom:1px solid var(--brd)}
-.acc-header{
+
+/* ── Sujet accordéon principal ── */
+.sujet-block{border-bottom:2px solid var(--brd);margin-bottom:0}
+.sujet-header{
     width:100%;display:flex;align-items:center;gap:12px;
-    background:var(--surf);color:var(--txt);
-    border:none;padding:14px 20px;cursor:pointer;text-align:left;transition:background .15s;
+    background:var(--ov);color:var(--txt);
+    border:none;padding:16px 20px;cursor:pointer;text-align:left;
+    transition:background .15s;border-left:4px solid var(--blue);
 }
-.acc-header:hover{background:var(--ov)}
-.acc-title{font-weight:700;font-size:15px;flex:1}
-.acc-count{font-size:12px;color:var(--sub);background:var(--ov);padding:2px 10px;border-radius:12px}
-.acc-arrow{font-size:12px;color:var(--sub);margin-left:auto}
-.acc-body{padding:20px}
-/* ── Sidebar ── */
-#vue-sidebar-wrap{display:flex!important}
-.sb-nav{
-    width:220px;flex-shrink:0;
-    border-right:1px solid var(--brd);background:var(--surf);
-    padding:12px 0;min-height:calc(100vh - 120px);
-}
-.sb-item{
-    width:100%;display:flex;justify-content:space-between;align-items:center;
-    background:transparent;color:var(--sub);border:none;
-    padding:10px 16px;cursor:pointer;text-align:left;font-size:13px;
-    transition:all .15s;border-left:3px solid transparent;
-}
-.sb-item:hover{background:var(--ov);color:var(--txt)}
-.sb-item.active{background:var(--ov);color:var(--blue);border-left-color:var(--blue)}
-.sb-title{flex:1}
-.sb-badge{
-    font-size:11px;background:var(--ov);color:var(--sub);
-    padding:1px 8px;border-radius:10px;min-width:28px;text-align:center;
-}
-.sb-item.active .sb-badge{background:var(--blue);color:var(--bg)}
-.sb-main{flex:1;padding:20px;overflow-x:auto}
-.sb-content{display:none}
-/* ── Sessions ── */
-.session-block{margin-bottom:12px;border:1px solid var(--brd);border-radius:10px;overflow:hidden}
+.sujet-header:hover{filter:brightness(1.12)}
+.sujet-title{font-weight:700;font-size:16px;flex:1;color:var(--blue)}
+.sujet-count{font-size:12px;color:var(--sub);background:var(--bg);padding:2px 12px;border-radius:12px}
+.sujet-arrow{font-size:13px;color:var(--sub);margin-left:8px;transition:transform .2s}
+.sujet-body{padding:0 0 8px 0}
+
+/* ── Sessions repliées ── */
+.session-block{border-bottom:1px solid var(--brd)}
 .session-header{
     width:100%;display:flex;align-items:center;gap:10px;
-    background:var(--ov);color:var(--txt);
-    border:none;padding:10px 16px;cursor:pointer;text-align:left;
+    background:var(--surf);color:var(--txt);
+    border:none;padding:11px 20px 11px 32px;cursor:pointer;text-align:left;
+    transition:background .15s;
 }
-.session-header:hover{filter:brightness(1.1)}
+.session-header:hover{background:var(--ov)}
 .session-date{font-weight:600;font-size:13px}
 .session-meta{font-size:12px;color:var(--sub);flex:1}
 .sess-arrow{font-size:11px;color:var(--sub)}
@@ -854,29 +815,30 @@ hr{border:none;border-top:1px solid var(--brd);margin:6px 20px 16px}
     background:#a6e3a1;color:#1e1e2e;
     font-size:10px;padding:1px 7px;border-radius:8px;font-weight:700;
 }
+
 /* ── Synthèse ── */
 .synth-box{
-    margin:14px 14px 10px;padding:14px 16px;
+    margin:14px 14px 10px 32px;padding:14px 16px;
     background:linear-gradient(135deg,var(--bg),var(--surf));
     border-left:4px solid var(--yel);border-radius:8px;
 }
 .synth-title{font-size:13px;font-weight:700;color:var(--yel);margin-bottom:10px}
 .synth-body{font-size:13px;color:var(--txt)}
+
 /* ── Grille articles ── */
 .articles-grid{
     display:grid;
-    grid-template-columns:repeat(auto-fill,minmax(320px,1fr));
-    gap:10px;padding:14px;
+    grid-template-columns:repeat(auto-fill,minmax(300px,1fr));
+    gap:10px;padding:12px 14px 14px 32px;
 }
 .art-card{
     background:var(--surf);border:1px solid var(--brd);
     border-radius:8px;padding:12px 14px;transition:border-color .15s;
 }
 .art-card:hover{border-color:var(--blue)}
-.art-header{margin-bottom:6px}
 .art-title{
     color:var(--blue);font-size:13px;font-weight:600;
-    text-decoration:none;line-height:1.4;display:block;
+    text-decoration:none;line-height:1.4;display:block;margin-bottom:6px;
 }
 .art-title:hover{text-decoration:underline}
 .art-meta{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
@@ -894,43 +856,13 @@ hr{border:none;border-top:1px solid var(--brd);margin:6px 20px 16px}
 """
 
 _JS_VUES = """
-function setVue(vue){
-    ['onglets','accordeon','sidebar'].forEach(function(v){
-        var wrap = v==='sidebar'?'sidebar-wrap':v;
-        var el=document.getElementById('vue-'+wrap);
-        if(el) el.style.display=(v===vue)?(v==='sidebar'?'flex':'block'):'none';
-        var btn=document.getElementById('vue-btn-'+v);
-        if(btn) btn.classList.toggle('active',v===vue);
-    });
-    try{localStorage.setItem('veille_vue',vue);}catch(e){}
-}
-function showTab(id){
-    document.querySelectorAll('.tab-content').forEach(function(el){el.style.display='none';});
-    document.querySelectorAll('.onglet-btn').forEach(function(el){el.classList.remove('active');});
-    var t=document.getElementById('tab-'+id);
-    if(t) t.style.display='block';
-    document.querySelectorAll('.onglet-btn').forEach(function(btn){
-        if(btn.getAttribute('onclick')&&btn.getAttribute('onclick').indexOf(id)!==-1)
-            btn.classList.add('active');
-    });
-}
-function toggleAcc(id){
-    var b=document.getElementById('acc-'+id);
-    var a=document.getElementById('acc-arrow-'+id);
+function toggleSujet(id){
+    var b=document.getElementById('sujet-body-'+id);
+    var a=document.getElementById('sujet-arrow-'+id);
     if(!b) return;
     var open=b.style.display!=='none';
     b.style.display=open?'none':'block';
     if(a) a.textContent=open?'▼':'▲';
-}
-function showSidebar(id){
-    document.querySelectorAll('.sb-content').forEach(function(el){el.style.display='none';});
-    document.querySelectorAll('.sb-item').forEach(function(el){el.classList.remove('active');});
-    var c=document.getElementById('sb-'+id);
-    if(c) c.style.display='block';
-    document.querySelectorAll('.sb-item').forEach(function(btn){
-        if(btn.getAttribute('onclick')&&btn.getAttribute('onclick').indexOf(id)!==-1)
-            btn.classList.add('active');
-    });
 }
 function toggleSession(id){
     var el=document.getElementById(id);
@@ -940,9 +872,6 @@ function toggleSession(id){
     el.style.display=open?'none':'block';
     if(ar) ar.textContent=open?'▼':'▲';
 }
-document.addEventListener('DOMContentLoaded',function(){
-    try{var s=localStorage.getItem('veille_vue');if(s) setVue(s);}catch(e){}
-});
 """
 
 
@@ -993,7 +922,8 @@ def _formater_resume_html(texte, articles_ref):
     return html
 
 
-def _generer_bloc_sujet(sujet: str, sessions: list) -> str:
+def _generer_bloc_sessions(sujet: str, sessions: list) -> str:
+    """Génère le HTML des sessions d'un sujet (accordéon sessions repliées)."""
     html = ""
     for i, session in enumerate(sessions):
         if not isinstance(session, dict):
@@ -1005,6 +935,7 @@ def _generer_bloc_sujet(sujet: str, sessions: list) -> str:
         if not articles:
             continue
 
+        # La session la plus récente (i==0) est ouverte, les autres repliées
         is_open = (i == 0)
         display = "block" if is_open else "none"
         arrow   = "▲" if is_open else "▼"
@@ -1042,10 +973,8 @@ def _generer_bloc_sujet(sujet: str, sessions: list) -> str:
             doublon_html = "<span class='badge-doublon'>~ doublon</span>" if doublon else ""
             html += f"""
                 <div class="art-card">
-                    <div class="art-header">
-                        <a href="{a.get('href','#')}" target="_blank" class="art-title">{a.get('title','')}</a>
-                        {doublon_html}
-                    </div>
+                    <a href="{a.get('href','#')}" target="_blank" class="art-title">{a.get('title','')}</a>
+                    {doublon_html}
                     <div class="art-meta">
                         <span class="art-dom">{dom}</span>
                         <span class="art-score {score_cls}">{score}</span>
@@ -1057,86 +986,45 @@ def _generer_bloc_sujet(sujet: str, sessions: list) -> str:
 
 
 def generer_contenu_html(historique, date):
-    """Génère le contenu HTML avec navigation onglets/accordéon/sidebar."""
+    """
+    Génère le contenu HTML principal.
+    Structure : un accordéon par sujet, et à l'intérieur
+    les sessions en accordéon (la plus récente ouverte, les autres repliées).
+    """
     if not historique:
-        return "<p style='color:var(--sub);font-style:italic;'>Aucun résultat.</p>"
+        return "<p style='color:var(--sub);font-style:italic;padding:20px;'>Aucun résultat.</p>"
 
     sujets = [k for k, v in historique.items()
               if not k.startswith("__") and isinstance(v, list) and v]
     if not sujets:
-        return "<p style='color:var(--sub);font-style:italic;'>Aucun résultat.</p>"
+        return "<p style='color:var(--sub);font-style:italic;padding:20px;'>Aucun résultat.</p>"
 
-    blocs = {s: _generer_bloc_sujet(s, historique[s]) for s in sujets}
+    html = f"<p class='maj-date'>Dernière mise à jour : {date}</p><hr>"
 
-    # ── Onglets ──────────────────────────────────────────────
-    onglets_nav = ""
-    for i, s in enumerate(blocs):
-        onglets_nav += (
-            f'<button class="onglet-btn{" active" if i==0 else ""}" '
-            f'onclick="showTab(\'{_safe_id(s)}\')">{s.title()}</button>'
-        )
-    onglets_content = ""
-    for i, (s, bloc) in enumerate(blocs.items()):
-        onglets_content += (
-            f'<div id="tab-{_safe_id(s)}" class="tab-content" '
-            f'style="display:{"block" if i==0 else "none"}">{bloc}</div>'
-        )
+    for i, sujet in enumerate(sujets):
+        sessions  = historique[sujet]
+        nb_total  = _compter_articles(sessions)
+        nb_sess   = len([s for s in sessions if isinstance(s, dict)])
+        sid       = _safe_id(sujet)
 
-    # ── Accordéon ────────────────────────────────────────────
-    accordeon = ""
-    for i, (s, bloc) in enumerate(blocs.items()):
-        expanded = "block" if i == 0 else "none"
-        arrow    = "▲" if i == 0 else "▼"
-        nb       = _compter_articles(historique[s])
-        accordeon += f"""
-        <div class="acc-item">
-            <button class="acc-header" onclick="toggleAcc('{_safe_id(s)}')">
-                <span class="acc-title">{s.title()}</span>
-                <span class="acc-count">{nb} articles</span>
-                <span id="acc-arrow-{_safe_id(s)}" class="acc-arrow">{arrow}</span>
+        # Premier sujet ouvert par défaut, les autres repliés
+        is_open   = (i == 0)
+        display   = "block" if is_open else "none"
+        arrow     = "▲" if is_open else "▼"
+
+        html += f"""
+        <div class="sujet-block">
+            <button class="sujet-header" onclick="toggleSujet('{sid}')">
+                <span class="sujet-title">📂 {sujet.title()}</span>
+                <span class="sujet-count">{nb_sess} session(s) · {nb_total} articles</span>
+                <span id="sujet-arrow-{sid}" class="sujet-arrow">{arrow}</span>
             </button>
-            <div id="acc-{_safe_id(s)}" class="acc-body" style="display:{expanded}">{bloc}</div>
+            <div id="sujet-body-{sid}" class="sujet-body" style="display:{display}">
+                {_generer_bloc_sessions(sujet, sessions)}
+            </div>
         </div>"""
 
-    # ── Sidebar ───────────────────────────────────────────────
-    sb_nav = ""
-    for i, s in enumerate(blocs):
-        nb = _compter_articles(historique[s])
-        sb_nav += (
-            f'<button class="sb-item{" active" if i==0 else ""}" '
-            f'onclick="showSidebar(\'{_safe_id(s)}\')">'
-            f'<span class="sb-title">{s.title()}</span>'
-            f'<span class="sb-badge">{nb}</span></button>'
-        )
-    sb_content = ""
-    for i, (s, bloc) in enumerate(blocs.items()):
-        sb_content += (
-            f'<div id="sb-{_safe_id(s)}" class="sb-content" '
-            f'style="display:{"block" if i==0 else "none"}">{bloc}</div>'
-        )
-
-    return f"""
-    <div id="vue-selector">
-        <span style="font-size:13px;opacity:.7;margin-right:10px;">Affichage :</span>
-        <button class="vue-btn active" onclick="setVue('onglets')" id="vue-btn-onglets">⊞ Onglets</button>
-        <button class="vue-btn" onclick="setVue('accordeon')" id="vue-btn-accordeon">☰ Accordéon</button>
-        <button class="vue-btn" onclick="setVue('sidebar')" id="vue-btn-sidebar">◧ Sidebar</button>
-    </div>
-    <p class="maj-date">Dernière mise à jour : {date}</p>
-    <hr>
-
-    <div id="vue-onglets" class="vue-container">
-        <div class="onglets-nav">{onglets_nav}</div>
-        <div class="onglets-body">{onglets_content}</div>
-    </div>
-
-    <div id="vue-accordeon" class="vue-container" style="display:none">{accordeon}</div>
-
-    <div id="vue-sidebar-wrap" class="vue-container" style="display:none">
-        <div class="sb-nav">{sb_nav}</div>
-        <div class="sb-main">{sb_content}</div>
-    </div>
-    """
+    return html
 
 
 def _build_html_head(title: str, theme_vars: str, font: str, fs: str) -> str:
@@ -1326,7 +1214,7 @@ def supprimer_anciens_posts():
 
 def workflow_publier(sujet, resultats_recherche, callback_statut=None,
                      limite=12, theme_ftp: dict = None,
-                     publier_wp: bool = True, publier_ftp: bool = True):
+                     publier_wp: bool = True, publier_ftp_flag: bool = True):
     def statut(msg):
         if callback_statut:
             callback_statut(msg)
@@ -1398,7 +1286,7 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None,
     else:
         resultats_pub["wordpress"] = (True, "WordPress ignoré")
 
-    if publier_ftp:
+    if publier_ftp_flag:
         if ftp_est_configure():
             statut("Upload FTP…")
             ok2, msg2 = _publier_ftp_avec_historique(html_complet, historique, theme_ftp)
@@ -1454,5 +1342,8 @@ def workflow_creer_post(sujet, resultats_recherche, callback_statut=None):
     </div>"""
     statut("Creation du post WordPress...")
     ok, msg = creer_post_wordpress(contenu, sujet, date)
-    statut("Post cree !" if ok else f"Erreur : {msg}")
+    if ok:
+        statut("Post cree !")
+    else:
+        statut(f"Erreur : {msg}")
     return ok, msg
