@@ -15,8 +15,26 @@ import io
 from urllib.parse import urlparse
 from html.parser import HTMLParser
 from difflib import SequenceMatcher
-import settings
-from veille_html_import import format_embedded_historique
+
+try:
+    import settings
+    _TIMEOUT_COURT    = getattr(settings, "TIMEOUT_HTTP_COURT",    8)
+    _TIMEOUT_STANDARD = getattr(settings, "TIMEOUT_HTTP_STANDARD", 15)
+    _TIMEOUT_LONG     = getattr(settings, "TIMEOUT_HTTP_LONG",     30)
+    _SCORE_MIN_PRI    = getattr(settings, "SCORE_MIN_PRIMAIRE",    50)
+    _SCORE_MIN_SEC    = getattr(settings, "SCORE_MIN_SECONDAIRE",  35)
+    _MAX_ARTICLES     = getattr(settings, "MAX_ARTICLES_PAR_RECHERCHE", 50)
+    _DELAI_RESUME     = getattr(settings, "DELAI_RESUME_SECONDES",  4)
+    _DELAI_SYNTHESE   = getattr(settings, "DELAI_SYNTHESE_SECONDES",10)
+except ImportError:
+    _TIMEOUT_COURT    = 8
+    _TIMEOUT_STANDARD = 15
+    _TIMEOUT_LONG     = 30
+    _SCORE_MIN_PRI    = 50
+    _SCORE_MIN_SEC    = 35
+    _MAX_ARTICLES     = 50
+    _DELAI_RESUME     = 4
+    _DELAI_SYNTHESE   = 10
 
 try:
     import feedparser
@@ -42,6 +60,35 @@ CONFIG_FILE         = _os.path.join(_APP, "config.json")
 VEILLE_PAGE_ID_FILE = _os.path.join(_APP, "veille_page_id.json")
 HISTORIQUE_FILE     = _os.path.join(_APP, "historique_veille.json")
 
+# ============================================================
+# MARQUEURS JSON EMBARQUÉ (import/export HTML)
+# ============================================================
+_FTP_DATA_MARKER = "<!--VEILLE_DATA:"
+_FTP_DATA_END    = ":END_VEILLE_DATA-->"
+
+def _format_embedded_historique(historique: dict) -> str:
+    if not historique:
+        return ""
+    try:
+        return f"\n{_FTP_DATA_MARKER}{json.dumps(historique, ensure_ascii=False)}{_FTP_DATA_END}\n"
+    except Exception:
+        return ""
+
+def extraire_historique_depuis_html(html: str) -> dict:
+    """Extrait le JSON embarqué d'un fichier HTML généré par cette app."""
+    try:
+        debut = html.find(_FTP_DATA_MARKER)
+        fin   = html.find(_FTP_DATA_END)
+        if debut != -1 and fin != -1:
+            json_str = html[debut + len(_FTP_DATA_MARKER):fin]
+            return json.loads(json_str)
+    except Exception:
+        pass
+    return {}
+
+# ============================================================
+# CONTEXTE STORAGE
+# ============================================================
 _storage_context = None
 
 def set_storage_context(ctx):
@@ -72,6 +119,9 @@ def _sauvegarder_historique_ctx(h):
         except Exception: pass
     sauvegarder_historique_local(h)
 
+# ============================================================
+# CONSTANTES
+# ============================================================
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 HEADERS_WEB = {
@@ -128,22 +178,17 @@ FLUX_RSS_IA = [
     "https://feeds.feedburner.com/TheHackersNews",
 ]
 
-def est_domaine_bloque(domain):
-    domain = domain.lower()
-
-    # 🔥 bloque tout le gouvernement FR automatiquement
-    if domain.endswith(".gouv.fr"):
-        return True
-
-    # 🔴 bloque ta liste personnalisée
-    if any(d in domain for d in DOMAINES_GOUVERNEMENTAUX_BLOQUES):
-        return True
-
-    return False
-
 # ============================================================
 # CONFIG
 # ============================================================
+
+def est_domaine_bloque(domain: str) -> bool:
+    domain = domain.lower()
+    if domain.endswith(".gouv.fr"):
+        return True
+    if any(d in domain for d in DOMAINES_GOUVERNEMENTAUX_BLOQUES):
+        return True
+    return False
 
 def charger_config_local():
     try:
@@ -172,11 +217,9 @@ def tester_connexion_wp(url, user, pwd):
             base += "/wp-json/wp/v2"
         import base64 as b64
         token = b64.b64encode(f"{user}:{pwd}".encode()).decode()
-        r = requests.get(
-            f"{base}/users/me",
-            headers={"Authorization": f"Basic {token}"},
-            timeout=settings.TIMEOUT_HTTP_COURT,
-        )
+        r = requests.get(f"{base}/users/me",
+                         headers={"Authorization": f"Basic {token}"},
+                         timeout=_TIMEOUT_COURT)
         if r.status_code == 200:
             return True, f"Connexion reussie ! Connecte : {r.json().get('name', user)}"
         elif r.status_code == 401: return False, "Identifiants incorrects."
@@ -184,7 +227,7 @@ def tester_connexion_wp(url, user, pwd):
         elif r.status_code == 404: return False, "URL introuvable."
         else: return False, f"Erreur {r.status_code}."
     except requests.exceptions.ConnectionError:
-        est_local = any(x in url.lower() for x in ["localhost", ".local", "127.0.0.1"])
+        est_local = any(x in url.lower() for x in ["localhost",".local","127.0.0.1"])
         return False, "Site local inaccessible." if est_local else "Site distant inaccessible."
     except requests.exceptions.Timeout:
         return False, "Delai depasse."
@@ -196,7 +239,7 @@ def tester_connexion_ftp(host, user, pwd):
         return False, "Remplissez tous les champs FTP."
     try:
         ftp = ftplib.FTP()
-        ftp.connect(host, 21, timeout=settings.TIMEOUT_HTTP_COURT)
+        ftp.connect(host, 21, timeout=_TIMEOUT_COURT)
         ftp.login(user, pwd)
         ftp.quit()
         return True, f"Connexion FTP reussie sur {host} !"
@@ -212,15 +255,15 @@ def config_existe():
 def _ftp_config():
     config = charger_config()
     return {
-        "host":     config.get("ftp_host", ""),
-        "user":     config.get("ftp_user", ""),
+        "host":     config.get("ftp_host",     ""),
+        "user":     config.get("ftp_user",     ""),
         "password": config.get("ftp_password", ""),
-        "path":     config.get("ftp_path", "/htdocs/veille-ia.html"),
+        "path":     config.get("ftp_path",     "/htdocs/veille-ia.html"),
     }
 
 def ftp_est_configure():
     cfg = _ftp_config()
-    placeholders = {"", "if0_xxxxxxx", "xxxx xxxx xxxx", "votre mot de passe ftp"}
+    placeholders = {"","if0_xxxxxxx","xxxx xxxx xxxx","votre mot de passe ftp"}
     host = cfg["host"].strip().lower()
     user = cfg["user"].strip().lower()
     pwd  = cfg["password"].strip().lower()
@@ -265,7 +308,7 @@ def obtenir_ou_creer_page():
         if not isinstance(pages, list):
             pages = []
         for page in pages:
-            if "veille ia" in page.get("title", {}).get("rendered", "").lower():
+            if "veille ia" in page.get("title",{}).get("rendered","").lower():
                 pid = page["id"]
                 with open(VEILLE_PAGE_ID_FILE, "w") as f:
                     json.dump({"id": pid}, f)
@@ -304,8 +347,6 @@ def est_bloque(r, sujet=""):
     dom   = urlparse(url).netloc.lower()
     if est_domaine_bloque(dom):
         return True
-    if any(d in dom for d in DOMAINES_GOUVERNEMENTAUX_BLOQUES):
-        return True
     if any(p in normaliser(url) for p in PATTERNS_GOUVERNEMENTAUX_BLOQUES):
         return True
     if any(t in titre for t in TITRES_HORS_SUJET):
@@ -332,7 +373,7 @@ def detecter_doublons_contenu(nouveaux_articles, sessions_existantes, seuil=0.70
         for a in s.get("articles", []):
             pts = a.get("resume_ollama", [])
             if pts and pts != ["Contenu non accessible pour ce site."]:
-                resumes_existants.append((" ".join(pts).lower(), a.get("title", ""), a.get("href", "")))
+                resumes_existants.append((" ".join(pts).lower(), a.get("title",""), a.get("href","")))
     for article in nouveaux_articles:
         pts = article.get("resume_ollama", [])
         if not pts or pts == ["Contenu non accessible pour ce site."]:
@@ -490,7 +531,7 @@ def resumer_article_ollama(titre, url, body_ddg):
                     {"role": "user",
                      "content": f"Article : \"{titre}\"\n\nContenu :\n{source[:2500]}\n\nRédige 3 à 5 points clés. Chaque point commence par \"• \". Phrases complètes. Uniquement les points."}
                 ]
-            }, timeout=settings.TIMEOUT_HTTP_LONG
+            }, timeout=_TIMEOUT_LONG
         )
         if resp.status_code == 200:
             contenu = resp.json()["choices"][0]["message"]["content"].strip()
@@ -527,13 +568,13 @@ def generer_resume_global(sujet, articles):
         titre  = a.get("title", "")
         dom    = urlparse(a.get("href", "")).netloc
         points = a.get("resume_ollama", [])
-        inacc  = not points or points in [["Contenu non accessible pour ce site."], ["Résumé non disponible."]]
+        inacc  = not points or points in [["Contenu non accessible pour ce site."],["Résumé non disponible."]]
         if not inacc:
             contexte += f"\n[{i+1}] {titre} ({dom})\n"
             for p in points[:3]:
                 contexte += f"  - {p}\n"
         else:
-            body = a.get("body", "").strip()
+            body = a.get("body","").strip()
             if body and len(body) > 40:
                 contexte += f"\n[{i+1}] {titre} ({dom})\n  - {body[:300]}\n"
     if not contexte.strip():
@@ -574,7 +615,7 @@ Format :
 
 Phrases directes. N'invente rien."""}
                 ]
-            }, timeout=settings.TIMEOUT_HTTP_LONG
+            }, timeout=_TIMEOUT_LONG
         )
         if resp.status_code == 200:
             return resp.json()["choices"][0]["message"]["content"].strip()
@@ -585,9 +626,9 @@ Phrases directes. N'invente rien."""}
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {GROQ_API_KEY}",
                          "Content-Type": "application/json"},
-                json={"model": "llama-3.3-70b-versatile", "max_tokens": 3000,
-                      "messages": [{"role": "user", "content": contexte[:2000]}]},
-                timeout=settings.TIMEOUT_HTTP_LONG
+                json={"model":"llama-3.3-70b-versatile","max_tokens":3000,
+                      "messages":[{"role":"user","content":contexte[:2000]}]},
+                timeout=_TIMEOUT_LONG
             )
             if resp2.status_code == 200:
                 return resp2.json()["choices"][0]["message"]["content"].strip()
@@ -620,12 +661,12 @@ def effacer_historique():
     _sauvegarder_historique_ctx({})
 
 def comparer_sessions(sujet, session_nouvelle, session_ancienne):
-    date_new      = session_nouvelle.get("date", "récente")
-    date_old      = session_ancienne.get("date", "précédente")
-    hrefs_anciens = {a["href"] for a in session_ancienne.get("articles", []) if "href" in a}
-    nouveaux      = [a for a in session_nouvelle.get("articles", []) if a.get("href") and a["href"] not in hrefs_anciens]
-    hrefs_nouveaux = {a["href"] for a in session_nouvelle.get("articles", []) if "href" in a}
-    disparus      = [a for a in session_ancienne.get("articles", []) if a.get("href") and a["href"] not in hrefs_nouveaux]
+    date_new       = session_nouvelle.get("date","récente")
+    date_old       = session_ancienne.get("date","précédente")
+    hrefs_anciens  = {a["href"] for a in session_ancienne.get("articles",[]) if "href" in a}
+    nouveaux       = [a for a in session_nouvelle.get("articles",[]) if a.get("href") and a["href"] not in hrefs_anciens]
+    hrefs_nouveaux = {a["href"] for a in session_nouvelle.get("articles",[]) if "href" in a}
+    disparus       = [a for a in session_ancienne.get("articles",[]) if a.get("href") and a["href"] not in hrefs_nouveaux]
     if not nouveaux and not disparus:
         return f"Aucune différence entre les sessions du {date_old} et du {date_new}."
     contexte = (f"Session précédente : {date_old} ({len(session_ancienne.get('articles') or [])} articles)\n"
@@ -633,15 +674,15 @@ def comparer_sessions(sujet, session_nouvelle, session_ancienne):
     if nouveaux:
         contexte += f"NOUVEAUX ARTICLES ({len(nouveaux)}) :\n"
         for a in nouveaux[:6]:
-            pts = a.get("resume_ollama", [])
-            contexte += f"- {a.get('title', '')}\n"
+            pts = a.get("resume_ollama",[])
+            contexte += f"- {a.get('title','')}\n"
             if pts and pts != ["Contenu non accessible pour ce site."]:
                 for p in pts[:2]:
                     contexte += f"  · {p}\n"
     if disparus:
         contexte += f"\nARTICLES DISPARUS ({len(disparus)}) :\n"
         for a in disparus[:4]:
-            contexte += f"- {a.get('title', '')}\n"
+            contexte += f"- {a.get('title','')}\n"
     if not GROQ_API_KEY:
         return contexte
     try:
@@ -653,10 +694,10 @@ def comparer_sessions(sujet, session_nouvelle, session_ancienne):
                 "model": "llama-3.3-70b-versatile",
                 "max_tokens": 1000,
                 "messages": [
-                    {"role": "system", "content": "Tu compares deux sessions de veille technologique."},
-                    {"role": "user", "content": f"Sujet : \"{sujet}\"\n\n{contexte}\n\nRédige un résumé des évolutions."}
+                    {"role":"system","content":"Tu compares deux sessions de veille technologique."},
+                    {"role":"user","content":f"Sujet : \"{sujet}\"\n\n{contexte}\n\nRédige un résumé des évolutions."}
                 ]
-            }, timeout=settings.TIMEOUT_HTTP_LONG
+            }, timeout=_TIMEOUT_LONG
         )
         if resp.status_code == 200:
             return resp.json()["choices"][0]["message"]["content"].strip()
@@ -689,7 +730,7 @@ def rechercher(sujet_brut, callback_statut=None):
                 ]
                 for q in queries:
                     for r in (ddgs.text(q, region="fr-fr", max_results=25) or []):
-                        lien = r.get("href", "#")
+                        lien = r.get("href","#")
                         if lien not in ids_vus:
                             ids_vus.add(lien)
                             r["sous_sujet"] = ss
@@ -704,16 +745,14 @@ def rechercher(sujet_brut, callback_statut=None):
             try:
                 feed = feedparser.parse(url_flux)
                 for entry in feed.entries[:20]:
-                    lien  = entry.get("link", "")
-                    titre = entry.get("title", "")
-                    body  = entry.get("summary", "")
+                    lien  = entry.get("link","")
+                    titre = entry.get("title","")
+                    body  = entry.get("summary","")
                     if not lien or lien in ids_vus:
                         continue
-                    tn = normaliser(titre)
-                    bn = normaliser(body)
-                    if any(m in tn or m in bn for m in mots):
+                    if any(m in normaliser(titre) or m in normaliser(body) for m in mots):
                         ids_vus.add(lien)
-                        data.append({"title": titre, "body": body, "href": lien, "source": "rss"})
+                        data.append({"title":titre,"body":body,"href":lien,"source":"rss"})
             except Exception:
                 continue
 
@@ -722,21 +761,203 @@ def rechercher(sujet_brut, callback_statut=None):
     data = [scorer_resultat(r, sujet_brut) for r in data]
     data.sort(key=lambda x: x["score"], reverse=True)
     data = deduplique_semantique(data)
-    filtres = [r for r in data if r["score"] >= settings.SCORE_MIN_PRIMAIRE]
+    filtres = [r for r in data if r["score"] >= _SCORE_MIN_PRI]
     if not filtres:
-        filtres = [r for r in data if r["score"] >= settings.SCORE_MIN_SECONDAIRE]
-    filtres = filtres[:settings.MAX_ARTICLES_PAR_RECHERCHE]
+        filtres = [r for r in data if r["score"] >= _SCORE_MIN_SEC]
+    filtres = filtres[:_MAX_ARTICLES]
     statut(f"{len(filtres)} resultats trouves")
     return filtres
 
 # ============================================================
-# GÉNÉRATION HTML
+# GÉNÉRATION HTML — CSS + JS partagés
 # ============================================================
+
+_CSS_VUES = """
+*{box-sizing:border-box}
+body{margin:0;padding:0}
+#vue-selector{
+    display:flex;align-items:center;
+    padding:12px 20px;background:var(--surf);
+    border-bottom:1px solid var(--brd);
+    position:sticky;top:0;z-index:100;
+}
+.vue-btn{
+    background:transparent;color:var(--sub);
+    border:1px solid var(--brd);border-radius:6px;
+    padding:6px 14px;font-size:12px;cursor:pointer;margin-right:6px;
+    transition:all .15s;
+}
+.vue-btn:hover,.vue-btn.active{background:var(--blue);color:var(--bg);border-color:var(--blue)}
+.maj-date{color:var(--sub);font-size:12px;margin:10px 20px 0}
+hr{border:none;border-top:1px solid var(--brd);margin:6px 20px 16px}
+/* ── Onglets ── */
+.onglets-nav{
+    display:flex;flex-wrap:wrap;gap:6px;
+    padding:12px 20px;background:var(--surf);
+    border-bottom:1px solid var(--brd);
+    position:sticky;top:49px;z-index:99;
+}
+.onglet-btn{
+    background:transparent;color:var(--sub);
+    border:1px solid var(--brd);border-radius:20px;
+    padding:6px 16px;font-size:13px;cursor:pointer;transition:all .15s;
+}
+.onglet-btn:hover,.onglet-btn.active{background:var(--blue);color:var(--bg);border-color:var(--blue)}
+.onglets-body{padding:20px}
+/* ── Accordéon ── */
+.acc-item{border-bottom:1px solid var(--brd)}
+.acc-header{
+    width:100%;display:flex;align-items:center;gap:12px;
+    background:var(--surf);color:var(--txt);
+    border:none;padding:14px 20px;cursor:pointer;text-align:left;transition:background .15s;
+}
+.acc-header:hover{background:var(--ov)}
+.acc-title{font-weight:700;font-size:15px;flex:1}
+.acc-count{font-size:12px;color:var(--sub);background:var(--ov);padding:2px 10px;border-radius:12px}
+.acc-arrow{font-size:12px;color:var(--sub);margin-left:auto}
+.acc-body{padding:20px}
+/* ── Sidebar ── */
+#vue-sidebar-wrap{display:flex!important}
+.sb-nav{
+    width:220px;flex-shrink:0;
+    border-right:1px solid var(--brd);background:var(--surf);
+    padding:12px 0;min-height:calc(100vh - 120px);
+}
+.sb-item{
+    width:100%;display:flex;justify-content:space-between;align-items:center;
+    background:transparent;color:var(--sub);border:none;
+    padding:10px 16px;cursor:pointer;text-align:left;font-size:13px;
+    transition:all .15s;border-left:3px solid transparent;
+}
+.sb-item:hover{background:var(--ov);color:var(--txt)}
+.sb-item.active{background:var(--ov);color:var(--blue);border-left-color:var(--blue)}
+.sb-title{flex:1}
+.sb-badge{
+    font-size:11px;background:var(--ov);color:var(--sub);
+    padding:1px 8px;border-radius:10px;min-width:28px;text-align:center;
+}
+.sb-item.active .sb-badge{background:var(--blue);color:var(--bg)}
+.sb-main{flex:1;padding:20px;overflow-x:auto}
+.sb-content{display:none}
+/* ── Sessions ── */
+.session-block{margin-bottom:12px;border:1px solid var(--brd);border-radius:10px;overflow:hidden}
+.session-header{
+    width:100%;display:flex;align-items:center;gap:10px;
+    background:var(--ov);color:var(--txt);
+    border:none;padding:10px 16px;cursor:pointer;text-align:left;
+}
+.session-header:hover{filter:brightness(1.1)}
+.session-date{font-weight:600;font-size:13px}
+.session-meta{font-size:12px;color:var(--sub);flex:1}
+.sess-arrow{font-size:11px;color:var(--sub)}
+.badge-new{
+    background:#a6e3a1;color:#1e1e2e;
+    font-size:10px;padding:1px 7px;border-radius:8px;font-weight:700;
+}
+/* ── Synthèse ── */
+.synth-box{
+    margin:14px 14px 10px;padding:14px 16px;
+    background:linear-gradient(135deg,var(--bg),var(--surf));
+    border-left:4px solid var(--yel);border-radius:8px;
+}
+.synth-title{font-size:13px;font-weight:700;color:var(--yel);margin-bottom:10px}
+.synth-body{font-size:13px;color:var(--txt)}
+/* ── Grille articles ── */
+.articles-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(320px,1fr));
+    gap:10px;padding:14px;
+}
+.art-card{
+    background:var(--surf);border:1px solid var(--brd);
+    border-radius:8px;padding:12px 14px;transition:border-color .15s;
+}
+.art-card:hover{border-color:var(--blue)}
+.art-header{margin-bottom:6px}
+.art-title{
+    color:var(--blue);font-size:13px;font-weight:600;
+    text-decoration:none;line-height:1.4;display:block;
+}
+.art-title:hover{text-decoration:underline}
+.art-meta{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.art-dom{font-size:11px;color:var(--sub)}
+.art-score{font-size:11px;padding:1px 8px;border-radius:10px;font-weight:700}
+.score-hi{background:rgba(166,227,161,.2);color:#a6e3a1}
+.score-mid{background:rgba(249,226,175,.2);color:#f9e2af}
+.score-lo{background:rgba(243,139,168,.2);color:#f38ba8}
+.art-pts{margin:0;padding-left:16px;font-size:12px;color:var(--sub);line-height:1.6}
+.art-pts li{margin:2px 0}
+.badge-doublon{
+    font-size:10px;background:rgba(249,226,175,.2);color:#f9e2af;
+    border:1px solid #f9e2af;padding:1px 6px;border-radius:6px;margin-left:6px;
+}
+"""
+
+_JS_VUES = """
+function setVue(vue){
+    ['onglets','accordeon','sidebar'].forEach(function(v){
+        var wrap = v==='sidebar'?'sidebar-wrap':v;
+        var el=document.getElementById('vue-'+wrap);
+        if(el) el.style.display=(v===vue)?(v==='sidebar'?'flex':'block'):'none';
+        var btn=document.getElementById('vue-btn-'+v);
+        if(btn) btn.classList.toggle('active',v===vue);
+    });
+    try{localStorage.setItem('veille_vue',vue);}catch(e){}
+}
+function showTab(id){
+    document.querySelectorAll('.tab-content').forEach(function(el){el.style.display='none';});
+    document.querySelectorAll('.onglet-btn').forEach(function(el){el.classList.remove('active');});
+    var t=document.getElementById('tab-'+id);
+    if(t) t.style.display='block';
+    document.querySelectorAll('.onglet-btn').forEach(function(btn){
+        if(btn.getAttribute('onclick')&&btn.getAttribute('onclick').indexOf(id)!==-1)
+            btn.classList.add('active');
+    });
+}
+function toggleAcc(id){
+    var b=document.getElementById('acc-'+id);
+    var a=document.getElementById('acc-arrow-'+id);
+    if(!b) return;
+    var open=b.style.display!=='none';
+    b.style.display=open?'none':'block';
+    if(a) a.textContent=open?'▼':'▲';
+}
+function showSidebar(id){
+    document.querySelectorAll('.sb-content').forEach(function(el){el.style.display='none';});
+    document.querySelectorAll('.sb-item').forEach(function(el){el.classList.remove('active');});
+    var c=document.getElementById('sb-'+id);
+    if(c) c.style.display='block';
+    document.querySelectorAll('.sb-item').forEach(function(btn){
+        if(btn.getAttribute('onclick')&&btn.getAttribute('onclick').indexOf(id)!==-1)
+            btn.classList.add('active');
+    });
+}
+function toggleSession(id){
+    var el=document.getElementById(id);
+    var ar=document.getElementById('arr-'+id);
+    if(!el) return;
+    var open=el.style.display!=='none';
+    el.style.display=open?'none':'block';
+    if(ar) ar.textContent=open?'▼':'▲';
+}
+document.addEventListener('DOMContentLoaded',function(){
+    try{var s=localStorage.getItem('veille_vue');if(s) setVue(s);}catch(e){}
+});
+"""
+
+
+def _safe_id(texte: str) -> str:
+    return re.sub(r'[^a-z0-9]', '-', texte.lower().strip())[:40]
+
+
+def _compter_articles(sessions: list) -> int:
+    return sum(len(s.get("articles",[])) for s in sessions if isinstance(s, dict))
+
 
 def _formater_resume_html(texte, articles_ref):
     if not texte:
         return ""
-    index_urls = {i+1: (a.get("href", ""), urlparse(a.get("href", "")).netloc)
+    index_urls = {i+1: (a.get("href",""), urlparse(a.get("href","")).netloc)
                   for i, a in enumerate(articles_ref[:12])}
 
     def remplacer_citation(m):
@@ -744,7 +965,7 @@ def _formater_resume_html(texte, articles_ref):
         if num in index_urls:
             url_r, dom_r = index_urls[num]
             return (f' <a href="{url_r}" target="_blank" '
-                    f'style="color:#89b4fa;font-size:11px;text-decoration:none;" '
+                    f'style="color:var(--blue);font-size:11px;text-decoration:none;" '
                     f'title="{dom_r}">[{num}]</a>')
         return m.group(0)
 
@@ -756,107 +977,170 @@ def _formater_resume_html(texte, articles_ref):
         ligne = re.sub(r'\*\*', '', ligne).strip()
         if ligne.startswith("—") and len(ligne) > 2:
             titre = ligne.lstrip("— ").rstrip(": ").strip()
-            html += f"<div style='font-size:13px;font-weight:bold;color:#f9e2af;margin:14px 0 6px 0;'>— {titre}</div>"
+            html += f"<div style='font-size:13px;font-weight:bold;color:var(--yel);margin:14px 0 6px 0;'>— {titre}</div>"
         elif ligne.startswith("##"):
             titre = ligne.lstrip("# ").rstrip(": ").strip()
-            html += f"<div style='font-size:13px;font-weight:bold;color:#f9e2af;margin:14px 0 6px 0;'>— {titre}</div>"
-        elif ligne.startswith(("- ", "* ", "• ")):
+            html += f"<div style='font-size:13px;font-weight:bold;color:var(--yel);margin:14px 0 6px 0;'>— {titre}</div>"
+        elif ligne.startswith(("- ","* ","• ")):
             point = re.sub(r'\*\*', '', ligne.lstrip("-*• ").strip())
-            point = point.replace("<", "&lt;").replace(">", "&gt;")
+            point = point.replace("<","&lt;").replace(">","&gt;")
             point = re.sub(r'\[(\d+)\]', remplacer_citation, point)
-            html += f"<div style='padding:3px 0 3px 14px;border-left:2px solid #45475a;margin:3px 0;line-height:1.6;'>{point}</div>"
+            html += f"<div style='padding:3px 0 3px 14px;border-left:2px solid var(--brd);margin:3px 0;line-height:1.6;'>{point}</div>"
         else:
-            ligne = re.sub(r'\*\*', '', ligne).replace("<", "&lt;").replace(">", "&gt;")
+            ligne = re.sub(r'\*\*', '', ligne).replace("<","&lt;").replace(">","&gt;")
             ligne = re.sub(r'\[(\d+)\]', remplacer_citation, ligne)
             html += f"<p style='margin:6px 0;line-height:1.7;'>{ligne}</p>"
     return html
 
-def generer_bloc_mot_cle(mot_cle, articles, tab_id, resume_global_texte="", date_session="", badge=""):
-    date_affichee = date_session or (articles[0].get("date_recherche", "N/A") if articles else "N/A")
-    lignes_tableau = ""
-    for a in articles:
-        dom    = urlparse(a.get("href", "")).netloc
-        langue = "FR" if dom.endswith(".fr") or any(d in dom for d in DOMAINES_FR_PRIORITAIRES) else "EN"
-        points = a.get("resume_ollama", [])
-        if points and points not in [["Contenu non accessible pour ce site."], ["Résumé non disponible."]]:
-            html_pts = "<ul style='margin:6px 0 0 0;padding-left:18px;'>"
-            for pt in points:
-                pt_s = pt.replace("<", "&lt;").replace(">", "&gt;")
-                html_pts += f"<li style='margin:4px 0;font-size:12px;color:#6c7086;line-height:1.6;'>{pt_s}</li>"
-            html_pts += "</ul>"
-        else:
-            html_pts = "<div style='font-size:12px;color:#6c7086;margin-top:4px;font-style:italic;'>Résumé non disponible.</div>"
-        doublon       = a.get("doublon_de", "")
-        badge_doublon = ("<span style='background:#f9e2af;color:#1e1e2e;font-size:10px;padding:2px 6px;border-radius:8px;margin-left:6px;'>~ doublon</span>" if doublon else "")
-        lignes_tableau += f"""
-        <tr>
-            <td style="padding:8px;text-align:center;vertical-align:top;">{langue}</td>
-            <td style="padding:8px;vertical-align:top;"><strong>{a.get('title','')}</strong>{badge_doublon}{html_pts}</td>
-            <td style="padding:8px;text-align:center;vertical-align:top;white-space:nowrap;">
-                <a href="{a.get('href','#')}" style="color:#89b4fa;" target="_blank">ouvrir</a>
-            </td>
-        </tr>"""
-    section_resume = ""
-    if resume_global_texte:
-        html_r = _formater_resume_html(resume_global_texte, articles)
-        section_resume = f"""
-        <div style="margin-top:18px;padding:18px;background:linear-gradient(135deg,#1e1e2e,#2a2a3e);border-left:4px solid #f9e2af;border-radius:8px;">
-            <div style="font-size:14px;font-weight:bold;color:#f9e2af;margin-bottom:14px;">
-                Synthèse — {mot_cle} <span style="font-size:11px;font-weight:normal;color:#a6adc8;">({len(articles)} articles)</span>
-            </div>
-            <div style="font-size:13px;color:#cdd6f4;">{html_r}</div>
-        </div>"""
-    return f"""
-    <div style="margin-bottom:16px;">
-        <button onclick="var el=document.getElementById('{tab_id}_table');var open=el.style.display!=='none';el.style.display=open?'none':'block';this.querySelector('.arrow').textContent=open?'▼':'▲';"
-                style="cursor:pointer;font-size:14px;font-weight:bold;padding:10px 18px;background:#313244;color:#cdd6f4;border:none;border-radius:8px;width:100%;text-align:left;margin-bottom:4px;">
-            <span style="color:#a6adc8;font-size:12px;">Recherche du {date_affichee}</span>
-            {badge}
-            <span class="arrow" style="float:right;">▲</span>
-        </button>
-        <div id="{tab_id}_table">
-            <table border="1" style="border-collapse:collapse;width:100%;margin-top:6px;">
-            <tr style="background-color:#313244;color:#cdd6f4;">
-                <th style="padding:8px;width:50px;">Langue</th>
-                <th style="padding:8px;">Titre &amp; Résumé</th>
-                <th style="padding:8px;width:70px;">Lien</th>
-            </tr>
-            {lignes_tableau}
-            </table>
-        </div>
-        {section_resume}
-    </div>"""
+
+def _generer_bloc_sujet(sujet: str, sessions: list) -> str:
+    html = ""
+    for i, session in enumerate(sessions):
+        if not isinstance(session, dict):
+            continue
+        date_s   = session.get("date","N/A")
+        articles = sorted(session.get("articles",[]),
+                          key=lambda x: x.get("score",0), reverse=True)
+        rg       = session.get("resume_global","")
+        if not articles:
+            continue
+
+        is_open = (i == 0)
+        display = "block" if is_open else "none"
+        arrow   = "▲" if is_open else "▼"
+        badge   = "<span class='badge-new'>NOUVEAU</span>" if i == 0 else ""
+        sid     = f"sess-{_safe_id(sujet)}-{i}"
+
+        html += f"""
+        <div class="session-block">
+            <button class="session-header" onclick="toggleSession('{sid}')">
+                <span class="session-date">📅 {date_s}</span>
+                <span class="session-meta">{len(articles)} articles {badge}</span>
+                <span id="arr-{sid}" class="sess-arrow">{arrow}</span>
+            </button>
+            <div id="{sid}" style="display:{display}">"""
+
+        if rg and not rg.startswith("Erreur"):
+            html_rg = _formater_resume_html(rg, articles)
+            html += f"""
+                <div class="synth-box">
+                    <div class="synth-title">Synthèse — {date_s}</div>
+                    <div class="synth-body">{html_rg}</div>
+                </div>"""
+
+        html += '<div class="articles-grid">'
+        for a in articles:
+            dom    = urlparse(a.get("href","")).netloc
+            score  = a.get("score",0)
+            pts    = a.get("resume_ollama",[])
+            doublon = a.get("doublon_de","")
+            score_cls = "score-hi" if score>=80 else "score-mid" if score>=50 else "score-lo"
+            pts_html = ""
+            if pts and pts not in [["Contenu non accessible pour ce site."],["Résumé non disponible."]]:
+                items = "".join(f"<li>{p}</li>" for p in pts[:3])
+                pts_html = f"<ul class='art-pts'>{items}</ul>"
+            doublon_html = "<span class='badge-doublon'>~ doublon</span>" if doublon else ""
+            html += f"""
+                <div class="art-card">
+                    <div class="art-header">
+                        <a href="{a.get('href','#')}" target="_blank" class="art-title">{a.get('title','')}</a>
+                        {doublon_html}
+                    </div>
+                    <div class="art-meta">
+                        <span class="art-dom">{dom}</span>
+                        <span class="art-score {score_cls}">{score}</span>
+                    </div>
+                    {pts_html}
+                </div>"""
+        html += "</div></div></div>"
+    return html
+
 
 def generer_contenu_html(historique, date):
-    contenu = (f"<h2>Résultats par sujet</h2>"
-               f"<p style='color:gray;font-size:13px;'>Derniere mise a jour : {date}</p><hr>")
+    """Génère le contenu HTML avec navigation onglets/accordéon/sidebar."""
     if not historique:
-        return contenu + "<p style='color:gray;font-style:italic;'>Aucun resultat.</p>"
-    idx = 0
-    for mot_cle, sessions in historique.items():
-        if mot_cle.startswith("__resume_global__") or not isinstance(sessions, list):
-            continue
-        if sessions and isinstance(sessions[0], dict) and "articles" in sessions[0]:
-            contenu += f"<div style='margin-bottom:32px;'><div style='font-size:20px;font-weight:bold;color:#89b4fa;padding:12px 0;border-bottom:2px solid #45475a;margin-bottom:16px;'>{mot_cle.upper()}</div>"
-            for si, session in enumerate(sessions):
-                date_session = session.get("date", "N/A")
-                articles     = sorted(session.get("articles", []), key=lambda x: x.get("score", 0), reverse=True)
-                rg           = session.get("resume_global", "")
-                tab_id       = f"tab_{idx}_{si}"
-                if not articles:
-                    continue
-                badge = ("<span style='background:#a6e3a1;color:#1e1e2e;font-size:10px;padding:2px 8px;border-radius:10px;margin-left:8px;'>NOUVEAU</span>" if si == 0 else "")
-                contenu += generer_bloc_mot_cle(mot_cle, articles, tab_id, rg, date_session, badge)
-            contenu += "</div>"
-        else:
-            tries = sorted(sessions, key=lambda x: x.get("score", 0), reverse=True)
-            contenu += generer_bloc_mot_cle(mot_cle, tries, f"tab_{idx}_0", "", "Historique", "")
-        idx += 1
-    return contenu
+        return "<p style='color:var(--sub);font-style:italic;'>Aucun résultat.</p>"
 
-def generer_html_complet(contenu_body, date, historique_embed=None):
+    sujets = [k for k, v in historique.items()
+              if not k.startswith("__") and isinstance(v, list) and v]
+    if not sujets:
+        return "<p style='color:var(--sub);font-style:italic;'>Aucun résultat.</p>"
+
+    blocs = {s: _generer_bloc_sujet(s, historique[s]) for s in sujets}
+
+    # ── Onglets ──────────────────────────────────────────────
+    onglets_nav = ""
+    for i, s in enumerate(blocs):
+        onglets_nav += (
+            f'<button class="onglet-btn{" active" if i==0 else ""}" '
+            f'onclick="showTab(\'{_safe_id(s)}\')">{s.title()}</button>'
+        )
+    onglets_content = ""
+    for i, (s, bloc) in enumerate(blocs.items()):
+        onglets_content += (
+            f'<div id="tab-{_safe_id(s)}" class="tab-content" '
+            f'style="display:{"block" if i==0 else "none"}">{bloc}</div>'
+        )
+
+    # ── Accordéon ────────────────────────────────────────────
+    accordeon = ""
+    for i, (s, bloc) in enumerate(blocs.items()):
+        expanded = "block" if i == 0 else "none"
+        arrow    = "▲" if i == 0 else "▼"
+        nb       = _compter_articles(historique[s])
+        accordeon += f"""
+        <div class="acc-item">
+            <button class="acc-header" onclick="toggleAcc('{_safe_id(s)}')">
+                <span class="acc-title">{s.title()}</span>
+                <span class="acc-count">{nb} articles</span>
+                <span id="acc-arrow-{_safe_id(s)}" class="acc-arrow">{arrow}</span>
+            </button>
+            <div id="acc-{_safe_id(s)}" class="acc-body" style="display:{expanded}">{bloc}</div>
+        </div>"""
+
+    # ── Sidebar ───────────────────────────────────────────────
+    sb_nav = ""
+    for i, s in enumerate(blocs):
+        nb = _compter_articles(historique[s])
+        sb_nav += (
+            f'<button class="sb-item{" active" if i==0 else ""}" '
+            f'onclick="showSidebar(\'{_safe_id(s)}\')">'
+            f'<span class="sb-title">{s.title()}</span>'
+            f'<span class="sb-badge">{nb}</span></button>'
+        )
+    sb_content = ""
+    for i, (s, bloc) in enumerate(blocs.items()):
+        sb_content += (
+            f'<div id="sb-{_safe_id(s)}" class="sb-content" '
+            f'style="display:{"block" if i==0 else "none"}">{bloc}</div>'
+        )
+
+    return f"""
+    <div id="vue-selector">
+        <span style="font-size:13px;opacity:.7;margin-right:10px;">Affichage :</span>
+        <button class="vue-btn active" onclick="setVue('onglets')" id="vue-btn-onglets">⊞ Onglets</button>
+        <button class="vue-btn" onclick="setVue('accordeon')" id="vue-btn-accordeon">☰ Accordéon</button>
+        <button class="vue-btn" onclick="setVue('sidebar')" id="vue-btn-sidebar">◧ Sidebar</button>
+    </div>
+    <p class="maj-date">Dernière mise à jour : {date}</p>
+    <hr>
+
+    <div id="vue-onglets" class="vue-container">
+        <div class="onglets-nav">{onglets_nav}</div>
+        <div class="onglets-body">{onglets_content}</div>
+    </div>
+
+    <div id="vue-accordeon" class="vue-container" style="display:none">{accordeon}</div>
+
+    <div id="vue-sidebar-wrap" class="vue-container" style="display:none">
+        <div class="sb-nav">{sb_nav}</div>
+        <div class="sb-main">{sb_content}</div>
+    </div>
+    """
+
+
+def _build_html_head(title: str, theme_vars: str, font: str, fs: str) -> str:
     ts = datetime.now().strftime("%Y%m%d%H%M%S")
-    embed = format_embedded_historique(historique_embed) if historique_embed else ""
     return f"""<!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -866,25 +1150,35 @@ def generer_html_complet(contenu_body, date, historique_embed=None):
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>Veille Technologique IA</title>
+<title>{title}</title>
 <style>
-body{{font-family:Arial,sans-serif;background:#1e1e2e;color:#cdd6f4;margin:0;padding:20px;}}
-h2{{color:#89b4fa;}}
-table{{border-collapse:collapse;width:100%;margin-top:6px;}}
-th{{background:#313244;color:#cdd6f4;padding:10px;}}
-td{{padding:8px;border:1px solid #45475a;vertical-align:top;}}
-a{{color:#89b4fa;}}
-ul{{margin:6px 0 0 0;padding-left:18px;}}
-li{{margin:4px 0;font-size:13px;color:#a6adc8;line-height:1.6;}}
-p{{color:gray;font-size:13px;}}
+:root{{{theme_vars}}}
+body{{font-family:{font};background:var(--bg);color:var(--txt);margin:0;padding:0;font-size:{fs}px;}}
+{_CSS_VUES}
 </style>
 </head>
-<body>
+<body>"""
+
+
+def generer_html_complet(contenu_body, date, historique_embed=None):
+    theme_vars = (
+        "--bg:#1e1e2e;--surf:#181825;--ov:#313244;"
+        "--txt:#cdd6f4;--sub:#a6adc8;--brd:#45475a;"
+        "--blue:#89b4fa;--grn:#a6e3a1;--yel:#f9e2af;--red:#f38ba8;"
+    )
+    embed = _format_embedded_historique(historique_embed) if historique_embed else ""
+    head  = _build_html_head("Veille Technologique IA", theme_vars, "Arial,sans-serif", "13")
+    return f"""{head}
+<div style="padding:16px 20px 4px;background:var(--surf);border-bottom:1px solid var(--brd);">
+    <h1 style="margin:0;font-size:20px;color:var(--blue);">🔭 Veille Technologique IA</h1>
+</div>
 {contenu_body}
-<p style="margin-top:30px;text-align:center;font-size:11px;color:#45475a;">Mis à jour le {date} — Veille technologique automatisée</p>
+<p style="text-align:center;font-size:11px;color:var(--brd);padding:20px;">
+    Mis à jour le {date} — Veille technologique automatisée
+</p>
+<script>{_JS_VUES}</script>
 {embed}
-</body>
-</html>"""
+</body></html>"""
 
 
 def generer_html_complet_theme(contenu_body: str, date: str, theme: dict, historique_embed=None) -> str:
@@ -895,44 +1189,31 @@ def generer_html_complet_theme(contenu_body: str, date: str, theme: dict, histor
     sub    = theme.get("sub",    "#a6adc8")
     brd    = theme.get("brd",    "#45475a")
     blue   = theme.get("blue",   "#89b4fa")
+    grn    = theme.get("grn",    "#a6e3a1")
+    yel    = theme.get("yel",    "#f9e2af")
+    red    = theme.get("red",    "#f38ba8")
     font   = theme.get("font",   "Arial,sans-serif")
     fs     = theme.get("fs",     "13")
-    rad    = theme.get("rad",    "8")
-    yel    = theme.get("yel",    "#f9e2af")
     ptitle = theme.get("ptitle", "Veille Technologique IA")
-    ts = datetime.now().strftime("%Y%m%d%H%M%S")
-    embed = format_embedded_historique(historique_embed) if historique_embed else ""
-    return f"""<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<!-- ts:{ts} -->
-<meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
-<title>{ptitle}</title>
-<style>
-body{{font-family:{font};background:{bg};color:{txt};margin:0;padding:20px;font-size:{fs}px;}}
-h2{{color:{blue};}}
-hr{{border-color:{brd};}}
-table{{border-collapse:collapse;width:100%;margin-top:6px;}}
-th{{background:{ov};color:{txt};padding:10px;text-align:left;}}
-td{{padding:8px;border:1px solid {brd};vertical-align:top;}}
-a{{color:{blue};}}
-ul{{margin:6px 0 0 0;padding-left:18px;}}
-li{{margin:4px 0;font-size:{fs}px;color:{sub};line-height:1.6;}}
-p{{color:{sub};font-size:{fs}px;}}
-button{{cursor:pointer;background:{ov};color:{txt};border:1px solid {brd};
-        border-radius:{rad}px;padding:10px 18px;font-size:14px;font-weight:bold;width:100%;text-align:left;}}
-</style>
-</head>
-<body>
+
+    theme_vars = (
+        f"--bg:{bg};--surf:{surf};--ov:{ov};"
+        f"--txt:{txt};--sub:{sub};--brd:{brd};"
+        f"--blue:{blue};--grn:{grn};--yel:{yel};--red:{red};"
+    )
+    embed = _format_embedded_historique(historique_embed) if historique_embed else ""
+    head  = _build_html_head(ptitle, theme_vars, font, fs)
+    return f"""{head}
+<div style="padding:16px 20px 4px;background:var(--surf);border-bottom:1px solid var(--brd);">
+    <h1 style="margin:0;font-size:20px;color:var(--blue);">🔭 {ptitle}</h1>
+</div>
 {contenu_body}
-<p style="margin-top:30px;text-align:center;font-size:11px;color:{brd};">Mis à jour le {date} — Veille technologique automatisée</p>
+<p style="text-align:center;font-size:11px;color:var(--brd);padding:20px;">
+    Mis à jour le {date} — Veille technologique automatisée
+</p>
+<script>{_JS_VUES}</script>
 {embed}
-</body>
-</html>"""
+</body></html>"""
 
 # ============================================================
 # PUBLICATION WORDPRESS
@@ -946,10 +1227,10 @@ def publier_wordpress(contenu, page_id):
         r = requests.post(
             f"{base}/pages/{page_id}",
             headers=_get_wp_headers(),
-            json={"title": "Veille Technologique", "content": contenu, "status": "publish"},
-            timeout=settings.TIMEOUT_HTTP_STANDARD
+            json={"title":"Veille Technologique","content":contenu,"status":"publish"},
+            timeout=_TIMEOUT_STANDARD
         )
-        if r.status_code in [200, 201]:
+        if r.status_code in [200,201]:
             return True, "WordPress mis a jour"
         return False, f"Erreur WP {r.status_code}"
     except Exception as e:
@@ -963,14 +1244,14 @@ def _uploader_ftp(html_final: str, chemin: str = None) -> tuple:
     ftp_cfg = _ftp_config()
     try:
         ftp = ftplib.FTP()
-        ftp.connect(ftp_cfg["host"], 21, timeout=settings.TIMEOUT_HTTP_LONG)
+        ftp.connect(ftp_cfg["host"], 21, timeout=_TIMEOUT_LONG)
         ftp.login(ftp_cfg["user"], ftp_cfg["password"])
         if not chemin:
             racine  = ftp.nlst()
             dossier = "/htdocs"
             if "htdocs" not in racine:
                 for d in racine:
-                    if any(x in d.lower() for x in ["htdocs", "www", "public"]):
+                    if any(x in d.lower() for x in ["htdocs","www","public"]):
                         dossier = f"/{d}"
                         break
             chemin = ftp_cfg["path"] if ftp_cfg["path"] else f"{dossier}/veille-ia.html"
@@ -980,16 +1261,10 @@ def _uploader_ftp(html_final: str, chemin: str = None) -> tuple:
     except Exception as e:
         return False, f"Erreur FTP : {e}"
 
-
 def publier_ftp(html_final: str) -> tuple:
     return _uploader_ftp(html_final)
 
-
-def _publier_ftp_avec_historique(contenu_html_ignoré, historique_actuel: dict, theme: dict = None) -> tuple:
-    """
-    Publie l'historique Supabase/local sur FTP.
-    theme optionnel : applique le thème personnalisé de l'utilisateur.
-    """
+def _publier_ftp_avec_historique(_, historique_actuel: dict, theme: dict = None) -> tuple:
     date_maj = datetime.now().strftime("%d/%m/%Y")
     contenu  = generer_contenu_html(historique_actuel, date_maj)
     if theme:
@@ -998,9 +1273,9 @@ def _publier_ftp_avec_historique(contenu_html_ignoré, historique_actuel: dict, 
         html_final = generer_html_complet(contenu, date_maj, historique_actuel)
     ok, msg = _uploader_ftp(html_final)
     if ok:
-        nb_sujets   = len([k for k in historique_actuel if not k.startswith("__")])
-        nb_sessions = sum(len(v) for v in historique_actuel.values() if isinstance(v, list))
-        msg = f"FTP OK — {nb_sujets} sujets, {nb_sessions} sessions"
+        nb_s = len([k for k in historique_actuel if not k.startswith("__")])
+        nb_r = sum(len(v) for v in historique_actuel.values() if isinstance(v, list))
+        msg  = f"FTP OK — {nb_s} sujets, {nb_r} sessions"
     return ok, msg
 
 # ============================================================
@@ -1015,10 +1290,10 @@ def creer_post_wordpress(contenu, sujet, date):
         r = requests.post(
             f"{base}/posts",
             headers=_get_wp_headers(),
-            json={"title": f"{sujet} — {date}", "content": contenu, "status": "publish"},
-            timeout=settings.TIMEOUT_HTTP_STANDARD
+            json={"title":f"{sujet} — {date}","content":contenu,"status":"publish"},
+            timeout=_TIMEOUT_STANDARD
         )
-        if r.status_code in [200, 201]:
+        if r.status_code in [200,201]:
             return True, "Post cree"
         return False, f"Erreur WP {r.status_code}"
     except Exception as e:
@@ -1029,23 +1304,17 @@ def supprimer_anciens_posts():
     if not base:
         return 0
     try:
-        r = requests.get(
-            f"{base}/posts?per_page=100&status=publish,private,draft",
-            headers=_get_wp_headers(),
-            timeout=settings.TIMEOUT_HTTP_STANDARD,
-        )
+        r = requests.get(f"{base}/posts?per_page=100&status=publish,private,draft",
+                         headers=_get_wp_headers(), timeout=_TIMEOUT_STANDARD)
         posts = r.json() if r.status_code == 200 else []
         if not isinstance(posts, list):
             return 0
         supprimes = 0
         for post in posts:
-            titre = post.get("title", {}).get("rendered", "").lower()
+            titre = post.get("title",{}).get("rendered","").lower()
             if "veille ia" in titre or "veille :" in titre:
-                requests.delete(
-                    f"{base}/posts/{post['id']}?force=true",
-                    headers=_get_wp_headers(),
-                    timeout=settings.TIMEOUT_HTTP_COURT,
-                )
+                requests.delete(f"{base}/posts/{post['id']}?force=true",
+                                headers=_get_wp_headers(), timeout=_TIMEOUT_COURT)
                 supprimes += 1
         return supprimes
     except Exception:
@@ -1058,11 +1327,6 @@ def supprimer_anciens_posts():
 def workflow_publier(sujet, resultats_recherche, callback_statut=None,
                      limite=12, theme_ftp: dict = None,
                      publier_wp: bool = True, publier_ftp: bool = True):
-    """
-    publier_wp  : True  → publie sur WordPress
-    publier_ftp : True  → publie sur FTP
-    Les deux peuvent être True simultanément (bouton "Publier partout").
-    """
     def statut(msg):
         if callback_statut:
             callback_statut(msg)
@@ -1071,28 +1335,28 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None,
     date       = datetime.now().strftime("%d/%m/%Y")
     historique = _charger_historique_ctx()
     sessions   = historique.get(sujet, [])
-    tous_hrefs = {a["href"] for s in sessions for a in s.get("articles", []) if "href" in a}
+    tous_hrefs = {a["href"] for s in sessions for a in s.get("articles",[]) if "href" in a}
 
     import time
-    nb_max            = max(1, min(int(limite), settings.MAX_ARTICLES_PAR_RECHERCHE))
+    nb_max            = max(1, min(int(limite), _MAX_ARTICLES))
     nouveaux_articles = []
 
     for r in resultats_recherche:
-        href = r.get("href", "")
+        href = r.get("href","")
         if not href or href in tous_hrefs:
             continue
         if len(nouveaux_articles) >= nb_max:
             break
         statut(f"Résumé IA {len(nouveaux_articles)+1}/{nb_max} : {r.get('title','')[:45]}...")
-        resume = resumer_article_ollama(r.get("title", ""), href, r.get("body", ""))
+        resume = resumer_article_ollama(r.get("title",""), href, r.get("body",""))
         nouveaux_articles.append({
-            "title":          r.get("title", ""),
+            "title":          r.get("title",""),
             "href":           href,
-            "score":          r.get("score", 0),
+            "score":          r.get("score",0),
             "resume_ollama":  resume,
             "date_recherche": date,
         })
-        time.sleep(settings.DELAI_RESUME_SECONDES)
+        time.sleep(_DELAI_RESUME)
 
     if not nouveaux_articles:
         statut("Aucun nouvel article — historique inchangé.")
@@ -1100,14 +1364,13 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None,
         html_complet = generer_html_complet(contenu, date, historique)
     else:
         nouveaux_articles = detecter_doublons_contenu(nouveaux_articles, sessions)
-        resume_precedent  = ""
-        for s in sessions:
-            rg = s.get("resume_global", "")
-            if rg and not rg.startswith("Erreur") and not rg.startswith("Aucun"):
-                resume_precedent = rg
-                break
+        resume_precedent  = next(
+            (s.get("resume_global","") for s in sessions
+             if s.get("resume_global") and not s["resume_global"].startswith(("Erreur","Aucun"))),
+            ""
+        )
         statut("Synthèse globale…")
-        time.sleep(settings.DELAI_SYNTHESE_SECONDES)
+        time.sleep(_DELAI_SYNTHESE)
         resume_global = generer_resume_global(sujet, nouveaux_articles)
         if resume_precedent and not resume_global.startswith("Erreur"):
             if SequenceMatcher(None, normaliser(resume_global), normaliser(resume_precedent)).ratio() > 0.85:
@@ -1118,7 +1381,7 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None,
             session_du_jour["articles"].extend(nouveaux_articles)
             session_du_jour["resume_global"] = resume_global
         else:
-            sessions.insert(0, {"date": date, "articles": nouveaux_articles, "resume_global": resume_global})
+            sessions.insert(0, {"date":date,"articles":nouveaux_articles,"resume_global":resume_global})
         historique[sujet] = sessions
         _sauvegarder_historique_ctx(historique)
         statut("Génération HTML…")
@@ -1127,16 +1390,14 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None,
 
     resultats_pub = {}
 
-    # ── WordPress ──
     if publier_wp:
         page_id = obtenir_ou_creer_page()
         statut("Publication WordPress…")
         ok, msg = publier_wordpress(contenu, page_id)
         resultats_pub["wordpress"] = (ok, msg)
     else:
-        resultats_pub["wordpress"] = (True, "WordPress ignoré (non sélectionné)")
+        resultats_pub["wordpress"] = (True, "WordPress ignoré")
 
-    # ── FTP ──
     if publier_ftp:
         if ftp_est_configure():
             statut("Upload FTP…")
@@ -1145,10 +1406,11 @@ def workflow_publier(sujet, resultats_recherche, callback_statut=None,
         else:
             resultats_pub["ftp"] = (False, "FTP non configuré — allez dans ⚙️ Configuration")
     else:
-        resultats_pub["ftp"] = (True, "FTP ignoré (non sélectionné)")
+        resultats_pub["ftp"] = (True, "FTP ignoré")
 
     statut("Publication terminée !")
     return resultats_pub
+
 
 def workflow_creer_post(sujet, resultats_recherche, callback_statut=None):
     def statut(msg):
@@ -1162,8 +1424,8 @@ def workflow_creer_post(sujet, resultats_recherche, callback_statut=None):
 
     for i, r in enumerate(resultats_recherche):
         statut(f"Resume IA {i+1}/{nb}...")
-        resume = resumer_article_ollama(r.get("title", ""), r.get("href", ""), r.get("body", ""))
-        dom    = urlparse(r.get("href", "")).netloc
+        resume = resumer_article_ollama(r.get("title",""), r.get("href",""), r.get("body",""))
+        dom    = urlparse(r.get("href","")).netloc
         langue = "FR" if dom.endswith(".fr") or any(d in dom for d in DOMAINES_FR_PRIORITAIRES) else "EN"
         html_pts = "<ul style='margin:6px 0 0 0;padding-left:18px;'>"
         for pt in resume:
@@ -1181,12 +1443,12 @@ def workflow_creer_post(sujet, resultats_recherche, callback_statut=None):
     rg      = generer_resume_global(sujet, articles_pour_global)
     rg_html = _formater_resume_html(rg, articles_pour_global)
     contenu = f"""
-    <h2>{sujet}</h2>
-    <p style="color:gray;">Publié le {date}</p>
+    <h2 style="color:var(--blue)">{sujet}</h2>
+    <p style="color:var(--sub);">Publié le {date}</p>
     <table border="1" style="border-collapse:collapse;width:100%;">
-    <tr style="background:#313244;color:#cdd6f4;"><th>Langue</th><th>Titre &amp; Résumé</th><th>Lien</th></tr>
+    <tr style="background:var(--ov);color:var(--txt);"><th>Langue</th><th>Titre &amp; Résumé</th><th>Lien</th></tr>
     {lignes}</table>
-    <div style="margin-top:24px;padding:18px;background:#f8f9fa;border-left:4px solid #f9e2af;border-radius:8px;">
+    <div style="margin-top:24px;padding:18px;border-left:4px solid var(--yel);border-radius:8px;background:var(--surf);">
         <strong>Synthèse — {sujet}</strong>
         <div style="margin-top:12px;font-size:13px;">{rg_html}</div>
     </div>"""
