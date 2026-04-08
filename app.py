@@ -110,7 +110,7 @@ hr{border-color:var(--border)!important;margin:16px 0!important;}
 .pub-panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-top:20px;}
 </style>
 """, unsafe_allow_html=True)
-    
+
 # ============================================================
 # THÈME PAR DÉFAUT
 # ============================================================
@@ -143,8 +143,7 @@ def _init_state():
 
 _init_state()
 
-# Restaure la session utilisateur si possible (evite les deconnexions
-# frequentes lorsque la session Streamlit est recreee).
+# Restaure la session utilisateur si possible
 if AUTH_OK and not st.session_state.get("user"):
     try:
         res_sess = auth.recuperer_session()
@@ -460,13 +459,12 @@ def page_accueil():
                         st.error(res["message"])
 
 # ============================================================
-# ÉDITEUR DE THÈME FTP
+# ÉDITEUR DE THÈME FTP  (déplacé dans Config)
 # ============================================================
 def _render_theme_editor():
     th  = st.session_state["theme_ftp"]
     ver = st.session_state["theme_widget_version"]
 
-    st.markdown("---")
     st.markdown(
         '<div style="font-family:Space Mono;font-size:13px;color:var(--blue);">'
         '🎨 Personnaliser le thème de veille-ia.html</div>', unsafe_allow_html=True)
@@ -845,9 +843,6 @@ def page_veille():
     if st.session_state.get("recherche_terminee") and st.session_state["resultats"] and not st.session_state["en_cours"]:
         _render_panneau_publication(uid, abonne)
 
-    if not st.session_state["en_cours"]:
-        _render_theme_editor()
-
 
 def _render_panneau_publication(uid, abonne):
     nb_r   = len(st.session_state["resultats"])
@@ -964,7 +959,7 @@ def page_historique():
 
     with st.expander("📥 Importer depuis un fichier veille-ia.html", expanded=not sujets):
         st.markdown(
-            "Les **nouveaux** fichiers générés par l’app contiennent des données cachées "
+            "Les **nouveaux** fichiers générés par l'app contiennent des données cachées "
             "pour un import fidèle. Les **anciens** exports HTML (sans ce bloc) peuvent "
             "être **reconstruits automatiquement** à partir du tableau et des résumés."
         )
@@ -1115,21 +1110,20 @@ def page_comparaison():
                 st.error(f"Erreur : {e}")
 
 # ============================================================
-# PAGE CONFIG — avec onglet Intégration
+# PAGE CONFIG — avec onglets WordPress / FTP / Thème / Intégration
 # ============================================================
 def page_config():
     st.markdown("# ⚙️ Configuration")
     st.markdown("---")
     cfg = _cfg()
 
-    # Récupère l'URL FTP configurée pour les exemples de code
-    ftp_url = cfg.get("ftp_path", "/htdocs/veille-ia.html")
-    # Tente de reconstruire une URL publique à partir du host FTP
     ftp_host = cfg.get("ftp_host", "")
-    # URL exemple pour les snippets (on utilise le host si dispo)
     exemple_url = f"https://{ftp_host}/veille-ia.html" if ftp_host else "https://monsite.com/veille-ia.html"
 
-    tab_wp, tab_ftp, tab_integration = st.tabs(["🌐 WordPress", "📡 FTP", "🔗 Intégration"])
+    # 4 onglets : WP / FTP / Thème / Intégration
+    tab_wp, tab_ftp, tab_theme, tab_integration = st.tabs(
+        ["🌐 WordPress", "📡 FTP", "🎨 Thème & Affichage", "🔗 Intégration"]
+    )
 
     # ── Onglet WordPress ──────────────────────────────────────
     with tab_wp:
@@ -1142,14 +1136,17 @@ def page_config():
             wp_pwd = st.text_input("Mot de passe app", value=cfg.get("wp_password", ""), type="password")
         cs, ct = st.columns(2)
         with cs:
-            if st.button("💾 Sauvegarder", use_container_width=True):
+            if st.button("💾 Sauvegarder", use_container_width=True, key="btn_save_wp"):
                 cfg.update({"wp_base": wp_base, "wp_user": wp_user, "wp_password": wp_pwd})
                 _save_cfg(cfg)
                 st.success("Sauvegardé !")
         with ct:
-            if st.button("🔌 Tester WP", use_container_width=True):
+            if st.button("🔌 Tester WP", use_container_width=True, key="btn_test_wp"):
                 ok, msg = srv.tester_connexion_wp(wp_base, wp_user, wp_pwd)
-                st.success(msg) if ok else st.error(msg)
+                if ok:
+                    st.success(msg)
+                else:
+                    st.error(msg)
 
     # ── Onglet FTP ────────────────────────────────────────────
     with tab_ftp:
@@ -1163,15 +1160,22 @@ def page_config():
         ftp_path = st.text_input("Chemin distant", value=cfg.get("ftp_path", "/htdocs/veille-ia.html"))
         cs, ct   = st.columns(2)
         with cs:
-            if st.button("💾 Sauvegarder FTP", use_container_width=True):
+            if st.button("💾 Sauvegarder FTP", use_container_width=True, key="btn_save_ftp"):
                 cfg.update({"ftp_host": ftp_host_input, "ftp_user": ftp_user,
                             "ftp_password": ftp_pwd, "ftp_path": ftp_path})
                 _save_cfg(cfg)
                 st.success("Sauvegardé !")
         with ct:
-            if st.button("🔌 Tester FTP", use_container_width=True):
+            if st.button("🔌 Tester FTP", use_container_width=True, key="btn_test_ftp"):
                 ok, msg = srv.tester_connexion_ftp(ftp_host_input, ftp_user, ftp_pwd)
-                st.success(msg) if ok else st.error(msg)
+                if ok:
+                    st.success(msg)
+                else:
+                    st.error(msg)
+
+    # ── Onglet Thème & Affichage ──────────────────────────────
+    with tab_theme:
+        _render_theme_editor()
 
     # ── Onglet Intégration ────────────────────────────────────
     with tab_integration:
@@ -1191,63 +1195,97 @@ def page_config():
             help="C'est l'URL où votre fichier veille-ia.html est accessible publiquement.")
 
         st.markdown("---")
+        st.markdown("#### ⚙️ Options d'affichage de l'iframe")
+
+        col_pos, col_larg = st.columns(2)
+        with col_pos:
+            position = st.selectbox(
+                "Position sur la page",
+                ["Centré (milieu)", "Gauche", "Droite", "Pleine largeur"],
+                key="iframe_position",
+                help="Comment l'iframe sera aligné dans la page hôte.")
+        with col_larg:
+            largeur_px = st.number_input(
+                "Largeur (px) — ignorée si Pleine largeur",
+                min_value=300, max_value=2000, value=900, step=50,
+                key="iframe_largeur",
+                help="Largeur de l'iframe en pixels. Choisissez 'Pleine largeur' pour 100%.")
+
+        hauteur_px = st.number_input(
+            "Hauteur de l'iframe (px)",
+            min_value=400, max_value=5000, value=1800, step=100,
+            key="iframe_hauteur",
+            help="Hauteur fixe de l'iframe. Augmentez si le contenu est coupé.")
+
+        # Calcul du CSS de positionnement
+        if position == "Pleine largeur":
+            width_css   = "100%"
+            wrapper_css = ""
+        elif position == "Centré (milieu)":
+            width_css   = f"{largeur_px}px"
+            wrapper_css = "text-align:center;"
+        elif position == "Gauche":
+            width_css   = f"{largeur_px}px"
+            wrapper_css = "text-align:left;"
+        else:  # Droite
+            width_css   = f"{largeur_px}px"
+            wrapper_css = "text-align:right;"
+
+        st.markdown("---")
 
         # ── Méthode 1 : iframe responsive ─────────────────────
         st.markdown(
             '<div style="font-family:Space Mono;font-size:12px;color:var(--blue);margin-bottom:8px;">'
-            '▶ Méthode 1 — iframe responsive (recommandée)</div>', unsafe_allow_html=True)
+            '▶ Méthode 1 — iframe auto-hauteur (recommandée)</div>', unsafe_allow_html=True)
         st.markdown(
             '<div style="font-size:12px;color:var(--subtext);margin-bottom:8px;">'
-            'Collez ce code dans la page ou l\'article WordPress où vous voulez afficher la veille. '
-            'L\'iframe s\'ajuste automatiquement à la hauteur du contenu et ignore le cache.</div>',
+            'L\'iframe s\'ajuste automatiquement à la hauteur du contenu. '
+            'Ignorez le paramètre hauteur ci-dessus pour cette méthode.</div>',
             unsafe_allow_html=True)
 
-        code_iframe = f"""<div id="veille-container"></div>
+        code_iframe = f"""<div style="{wrapper_css}">
+<div id="veille-container"></div>
+</div>
 <script>
 var url = "{url_veille}?v=" + Date.now();
 document.getElementById("veille-container").innerHTML =
-  '<iframe src="' + url + '" style="width:100%;border:none;" ' +
+  '<iframe src="' + url + '" style="width:{width_css};border:none;" ' +
   'onload="this.style.height=this.contentDocument.body.scrollHeight+\'px\'"></iframe>';
 </script>"""
         st.code(code_iframe, language="html")
 
         st.markdown(
             '<div style="font-size:11px;color:var(--subtext);margin-top:4px;margin-bottom:20px;">'
-            '💡 Le <code>?v=Date.now()</code> force le rechargement à chaque visite — '
-            'votre lecteur voit toujours la version la plus récente.</div>',
+            '💡 Le <code>?v=Date.now()</code> force le rechargement à chaque visite.</div>',
             unsafe_allow_html=True)
 
         # ── Méthode 2 : iframe simple ──────────────────────────
         st.markdown(
             '<div style="font-family:Space Mono;font-size:12px;color:var(--blue);margin-bottom:8px;">'
-            '▶ Méthode 2 — iframe simple (hauteur fixe)</div>', unsafe_allow_html=True)
+            '▶ Méthode 2 — iframe hauteur fixe</div>', unsafe_allow_html=True)
         st.markdown(
             '<div style="font-size:12px;color:var(--subtext);margin-bottom:8px;">'
-            'Version simplifiée si la méthode 1 pose problème. '
-            'Ajustez la hauteur selon votre contenu.</div>',
+            f'Hauteur : {hauteur_px}px · Largeur : {width_css} · Position : {position}.</div>',
             unsafe_allow_html=True)
 
-        code_iframe_simple = f"""<iframe
+        code_iframe_simple = f"""<div style="{wrapper_css}">
+<iframe
   src="{url_veille}?v=TIMESTAMP"
-  style="width:100%; height:1800px; border:none;"
+  style="width:{width_css}; height:{hauteur_px}px; border:none;"
   loading="lazy">
-</iframe>"""
+</iframe>
+</div>"""
         st.code(code_iframe_simple, language="html")
 
         st.markdown(
             '<div style="font-size:11px;color:var(--subtext);margin-top:4px;margin-bottom:20px;">'
-            '💡 Remplacez <code>TIMESTAMP</code> par un nombre qui change à chaque mise à jour '
-            '(ex: la date du jour) pour forcer le rechargement.</div>',
+            '💡 Remplacez <code>TIMESTAMP</code> par la date du jour à chaque mise à jour.</div>',
             unsafe_allow_html=True)
 
         # ── Méthode 3 : lien direct ────────────────────────────
         st.markdown(
             '<div style="font-family:Space Mono;font-size:12px;color:var(--blue);margin-bottom:8px;">'
             '▶ Méthode 3 — lien direct vers la page</div>', unsafe_allow_html=True)
-        st.markdown(
-            '<div style="font-size:12px;color:var(--subtext);margin-bottom:8px;">'
-            'La solution la plus simple : un lien ou un bouton qui ouvre la page dans un nouvel onglet.</div>',
-            unsafe_allow_html=True)
 
         code_lien = f"""<a href="{url_veille}" target="_blank"
    style="display:inline-block;padding:10px 20px;
@@ -1361,9 +1399,7 @@ def page_conformite():
         )
 
     with st.expander("9) Cookies et traceurs"):
-        st.markdown(
-            "tu veux un cookie ^-^ ?"
-        )
+        st.markdown("tu veux un cookie ^-^ ?")
 
     st.markdown("---")
 
@@ -1435,12 +1471,21 @@ else:
     if AUTH_OK and not _conditions_acceptees():
         page_conditions()
     else:
-        if   page == "veille":      page_veille()
-        elif page == "historique":  page_historique()
-        elif page == "comparaison": page_comparaison()
-        elif page == "auto":        page_auto()
-        elif page == "config":      page_config()
-        elif page == "abonnement":  page_abonnement()
-        elif page == "conditions":  page_conditions()
-        elif page == "conformite":  page_conformite()
-        else:                       page_veille()
+        if page == "veille":
+            page_veille()
+        elif page == "historique":
+            page_historique()
+        elif page == "comparaison":
+            page_comparaison()
+        elif page == "auto":
+            page_auto()
+        elif page == "config":
+            page_config()
+        elif page == "abonnement":
+            page_abonnement()
+        elif page == "conditions":
+            page_conditions()
+        elif page == "conformite":
+            page_conformite()
+        else:
+            page_veille()
