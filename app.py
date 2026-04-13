@@ -963,10 +963,6 @@ def page_veille():
     if st.session_state.get("recherche_terminee") and st.session_state["resultats"] and not st.session_state["en_cours"]:
         _render_panneau_publication(uid, abonne)
 
-    if not st.session_state["en_cours"]:
-        st.markdown("---")
-        _render_theme_editor()
-
 def _render_panneau_publication(uid, abonne):
     nb_r   = len(st.session_state["resultats"])
     limite = st.session_state.get("limite_courante",10)
