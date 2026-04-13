@@ -16,6 +16,7 @@ except Exception:
     pass
 
 import serveur as srv
+import chatbot
 
 # ── Auth (optionnel) ──────────────────────────────────────
 AUTH_OK = False
@@ -42,7 +43,6 @@ except Exception:
     pass
 
 def _valider_texte(texte: str, longueur_max: int = 500):
-    """Validation de sécurité — utilise security.py si dispo, sinon basique."""
     if SECURITY_OK:
         try:
             return security.valider_texte_recherche(texte, longueur_max=longueur_max)
@@ -117,6 +117,112 @@ hr{border-color:var(--border)!important;margin:16px 0!important;}
 .typing-dots span{display:inline-block;width:6px;height:6px;background:var(--blue);border-radius:50%;margin:0 2px;animation:dot-blink 1.2s infinite;}
 .typing-dots span:nth-child(2){animation-delay:.2s}.typing-dots span:nth-child(3){animation-delay:.4s}
 .launch-status{font-family:'Space Mono',monospace;font-size:12px;color:var(--green);margin-top:8px;min-height:20px;}
+
+/* ════════════════════════════════════════
+   CHATBOT WIDGET FLOTTANT
+   ════════════════════════════════════════ */
+.chat-fab-wrap{
+    position:fixed;bottom:28px;right:28px;z-index:9999;
+}
+.chat-fab{
+    width:56px;height:56px;border-radius:50%;
+    background:linear-gradient(135deg,#89b4fa,#cba6f7);
+    color:#1e1e2e;border:none;cursor:pointer;
+    font-size:24px;font-weight:700;
+    box-shadow:0 4px 24px rgba(137,180,250,.45);
+    display:flex;align-items:center;justify-content:center;
+    transition:transform .2s,box-shadow .2s;
+}
+.chat-fab:hover{transform:scale(1.12);box-shadow:0 6px 32px rgba(137,180,250,.65);}
+.chat-window{
+    position:fixed;bottom:96px;right:28px;
+    width:360px;max-width:calc(100vw - 56px);
+    background:#181825;border:1px solid #45475a;
+    border-radius:18px;box-shadow:0 12px 48px rgba(0,0,0,.55);
+    z-index:9998;display:flex;flex-direction:column;
+    overflow:hidden;
+    animation:chat-pop .18s cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes chat-pop{
+    from{opacity:0;transform:translateY(16px) scale(.95)}
+    to{opacity:1;transform:none}
+}
+.chat-header{
+    padding:14px 16px;
+    background:linear-gradient(135deg,#313244,#1e1e2e);
+    border-bottom:1px solid #45475a;
+    display:flex;align-items:center;gap:10px;
+    flex-shrink:0;
+}
+.chat-avatar{
+    width:34px;height:34px;border-radius:50%;
+    background:linear-gradient(135deg,#89b4fa,#cba6f7);
+    color:#1e1e2e;display:flex;align-items:center;
+    justify-content:center;font-size:17px;font-weight:700;
+    flex-shrink:0;
+}
+.chat-header-name{font-size:13px;font-weight:600;color:#cdd6f4;}
+.chat-header-status{font-size:11px;color:#a6e3a1;margin-top:1px;}
+.chat-header-close{
+    margin-left:auto;background:none;border:none;
+    color:#a6adc8;cursor:pointer;font-size:18px;
+    line-height:1;padding:2px 4px;border-radius:4px;
+    transition:color .15s;
+}
+.chat-header-close:hover{color:#cdd6f4;}
+.chat-messages{
+    flex:1;min-height:220px;max-height:280px;
+    overflow-y:auto;padding:12px;
+    display:flex;flex-direction:column;gap:8px;
+    scroll-behavior:smooth;
+}
+.chat-messages::-webkit-scrollbar{width:4px;}
+.chat-messages::-webkit-scrollbar-thumb{background:#45475a;border-radius:2px;}
+.cmsg{
+    max-width:88%;padding:9px 13px;
+    border-radius:14px;font-size:13px;line-height:1.55;
+    word-break:break-word;
+}
+.cmsg-user{
+    align-self:flex-end;
+    background:linear-gradient(135deg,#89b4fa,#74c7ec);
+    color:#1e1e2e;border-bottom-right-radius:4px;
+    font-weight:500;
+}
+.cmsg-bot{
+    align-self:flex-start;
+    background:#313244;color:#cdd6f4;
+    border-bottom-left-radius:4px;
+}
+.cmsg-typing{
+    align-self:flex-start;
+    background:#313244;color:#a6adc8;
+    padding:10px 14px;border-radius:14px;
+    font-size:13px;border-bottom-left-radius:4px;
+}
+.chat-suggestions{
+    padding:8px 10px;
+    display:flex;flex-wrap:wrap;gap:5px;
+    border-top:1px solid #313244;flex-shrink:0;
+}
+.chat-sug{
+    background:#313244;color:#a6adc8;
+    border:1px solid #45475a;border-radius:16px;
+    padding:4px 10px;font-size:11px;cursor:pointer;
+    transition:all .15s;white-space:nowrap;
+}
+.chat-sug:hover{background:#89b4fa;color:#1e1e2e;border-color:#89b4fa;}
+.chat-input-area{
+    padding:10px 12px;border-top:1px solid #313244;
+    display:flex;gap:8px;align-items:center;flex-shrink:0;
+    background:#181825;
+}
+.chat-footer{
+    padding:6px 12px;
+    font-size:10px;color:#45475a;text-align:center;
+    border-top:1px solid #313244;flex-shrink:0;
+    background:#181825;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -145,6 +251,10 @@ def _init_state():
         "recherche_terminee":False,
         "limite_courante":10,
         "derniere_publication":None,
+        # ── Chatbot ──
+        "chat_ouvert":   False,
+        "chat_messages": [],
+        "chat_sug_used": False,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -266,6 +376,153 @@ def _activer_storage(user_id):
 def _appliquer_theme(valeurs: dict):
     st.session_state["theme_ftp"].update(valeurs)
     st.session_state["theme_widget_version"] += 1
+
+# ============================================================
+# CHATBOT WIDGET FLOTTANT
+# ============================================================
+def render_chatbot():
+    """Widget chatbot flottant en bas à droite — LLaMA via Groq."""
+
+    msgs      = st.session_state["chat_messages"]
+    ouvert    = st.session_state["chat_ouvert"]
+    sug_used  = st.session_state["chat_sug_used"]
+
+    # ── Bouton FAB ────────────────────────────────────────────
+    # On injecte le FAB en HTML pur pour qu'il reste bien fixe
+    fab_icon  = "✕" if ouvert else "💬"
+    fab_label = "Fermer le support" if ouvert else "Support Veille IA"
+    st.markdown(
+        f'<div class="chat-fab-wrap">'
+        f'<button class="chat-fab" title="{fab_label}" '
+        f'onclick="window._chatToggle()">{fab_icon}</button>'
+        f'</div>',
+        unsafe_allow_html=True)
+
+    # ── Script toggle — évite un rerun complet pour ouvrir/fermer ──
+    # On utilise un formulaire Streamlit caché pour propager l'état
+    with st.form("chat_fab_form", clear_on_submit=True):
+        fab_clicked = st.form_submit_button("toggle_chat", use_container_width=False)
+    # On cache ce bouton via JS
+    st.markdown("""
+    <script>
+    function window._chatToggle(){
+        // Trouve le bouton Streamlit caché et le clique
+        var btns = window.parent.document.querySelectorAll('button');
+        for(var b of btns){
+            if(b.innerText.trim()==='toggle_chat'){b.click();break;}
+        }
+    }
+    // Cache le bouton Streamlit
+    (function hide(){
+        var btns = window.parent.document.querySelectorAll('button');
+        for(var b of btns){if(b.innerText.trim()==='toggle_chat'){b.style.display='none';}}
+    })();
+    </script>
+    """, unsafe_allow_html=True)
+
+    if fab_clicked:
+        st.session_state["chat_ouvert"] = not ouvert
+        st.rerun()
+
+    if not ouvert:
+        return
+
+    # ── Fenêtre chat ─────────────────────────────────────────
+    st.markdown('<div class="chat-window">', unsafe_allow_html=True)
+
+    # En-tête
+    st.markdown(
+        '<div class="chat-header">'
+        '<div class="chat-avatar">🔭</div>'
+        '<div style="flex:1">'
+        '<div class="chat-header-name">Support Veille IA</div>'
+        '<div class="chat-header-status">● En ligne — LLaMA via Groq</div>'
+        '</div>'
+        '</div>',
+        unsafe_allow_html=True)
+
+    # Zone messages
+    if not msgs:
+        msgs_html = (
+            '<div class="cmsg cmsg-bot">'
+            '👋 Bonjour ! Je suis l\'assistant de Veille IA.<br>'
+            'Pose-moi ta question ou clique sur une suggestion.'
+            '</div>'
+        )
+    else:
+        msgs_html = ""
+        for m in msgs:
+            cls = "cmsg-user" if m["role"] == "user" else "cmsg-bot"
+            txt = m["content"].replace("<","&lt;").replace(">","&gt;").replace("\n","<br>")
+            msgs_html += f'<div class="cmsg {cls}">{txt}</div>'
+
+    st.markdown(
+        f'<div class="chat-messages" id="chat-msgs">{msgs_html}</div>',
+        unsafe_allow_html=True)
+
+    # Auto-scroll
+    st.markdown("""
+    <script>
+    (function(){
+        var el = window.parent.document.getElementById('chat-msgs');
+        if(el) el.scrollTop = el.scrollHeight;
+    })();
+    </script>""", unsafe_allow_html=True)
+
+    # Suggestions rapides (affichées seulement si pas encore utilisées)
+    if not sug_used:
+        sugs = chatbot.QUESTIONS_PREDEFINIES[:4]
+        st.markdown('<div class="chat-suggestions">', unsafe_allow_html=True)
+        sug_cols = st.columns(len(sugs))
+        for i, q in enumerate(sugs):
+            with sug_cols[i]:
+                if st.button(q, key=f"csug_{i}", use_container_width=True):
+                    st.session_state["chat_messages"].append({"role":"user","content":q})
+                    st.session_state["chat_sug_used"] = True
+                    with st.spinner("…"):
+                        rep = chatbot.repondre(st.session_state["chat_messages"])
+                    st.session_state["chat_messages"].append({"role":"assistant","content":rep})
+                    st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # Champ de saisie
+    st.markdown('<div class="chat-input-area">', unsafe_allow_html=True)
+    col_inp, col_send = st.columns([5, 1])
+    with col_inp:
+        user_input = st.text_input(
+            "msg", label_visibility="collapsed",
+            placeholder="Pose ta question…",
+            key=f"chat_inp_{len(msgs)}")
+    with col_send:
+        envoyer = st.button("➤", key=f"chat_send_{len(msgs)}", use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # Traitement du message saisi
+    if (envoyer or user_input) and str(user_input).strip():
+        msg_txt = str(user_input).strip()
+        st.session_state["chat_messages"].append({"role":"user","content":msg_txt})
+        st.session_state["chat_sug_used"] = True
+        # Limite l'historique à 20 messages pour ne pas exploser le contexte Groq
+        if len(st.session_state["chat_messages"]) > 20:
+            st.session_state["chat_messages"] = st.session_state["chat_messages"][-20:]
+        with st.spinner("…"):
+            rep = chatbot.repondre(st.session_state["chat_messages"])
+        st.session_state["chat_messages"].append({"role":"assistant","content":rep})
+        st.rerun()
+
+    # Boutons secondaires
+    col_cl, col_info = st.columns([1, 2])
+    with col_cl:
+        if st.button("🗑 Effacer", key="chat_clear", use_container_width=True):
+            st.session_state["chat_messages"] = []
+            st.session_state["chat_sug_used"] = False
+            st.rerun()
+    with col_info:
+        st.markdown(
+            '<div class="chat-footer">Propulsé par LLaMA 3.1 · Groq</div>',
+            unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)  # ferme .chat-window
 
 # ============================================================
 # SIDEBAR
@@ -457,7 +714,6 @@ def _render_theme_editor():
         ptitle = st.text_input("Titre de la page", value=th.get("ptitle","Veille Technologique IA"), key=f"th_ptitle_v{ver}")
         st.session_state["theme_ftp"]["ptitle"] = ptitle
 
-    # Aperçu live
     t = st.session_state["theme_ftp"]
     st.markdown(
         f'<div style="margin-top:12px;padding:16px;background:{t["bg"]};border-radius:{t["rad"]}px;border:1px solid {t["brd"]};font-family:{t["font"]};">'
@@ -707,6 +963,10 @@ def page_veille():
     if st.session_state.get("recherche_terminee") and st.session_state["resultats"] and not st.session_state["en_cours"]:
         _render_panneau_publication(uid, abonne)
 
+    if not st.session_state["en_cours"]:
+        st.markdown("---")
+        _render_theme_editor()
+
 def _render_panneau_publication(uid, abonne):
     nb_r   = len(st.session_state["resultats"])
     limite = st.session_state.get("limite_courante",10)
@@ -772,10 +1032,7 @@ def page_historique():
     sujets = [k for k in h if not k.startswith("__") and isinstance(h[k],list)]
 
     with st.expander("📥 Importer depuis un fichier veille-ia.html", expanded=not sujets):
-        st.markdown(
-            '<div style="font-size:12px;color:var(--subtext);margin-bottom:12px;">'
-            'Les fichiers générés par cette app contiennent un bloc de données caché pour un import fidèle. '
-            'Seuls ces fichiers sont compatibles.</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-size:12px;color:var(--subtext);margin-bottom:12px;">Les fichiers générés par cette app contiennent un bloc de données caché pour un import fidèle.</div>', unsafe_allow_html=True)
         fichier = st.file_uploader("Fichier veille-ia.html", type=["html"], key="import_veille_html")
         if fichier is not None:
             try:
@@ -793,7 +1050,7 @@ def page_historique():
                         _sauvegarder_historique_complet(merged)
                         st.success("Historique mis à jour."); st.rerun()
                 else:
-                    st.warning("Aucune donnée reconnue dans ce fichier. Seuls les fichiers générés par cette app sont compatibles.")
+                    st.warning("Aucune donnée reconnue dans ce fichier.")
 
     if not sujets:
         st.info("Aucun historique. Lancez une première veille ou importez un fichier HTML ci-dessus.")
@@ -879,7 +1136,7 @@ def page_comparaison():
                 st.error(f"Erreur : {e}")
 
 # ============================================================
-# PAGE CONFIG — WP / FTP / Thème & Affichage / Intégration
+# PAGE CONFIG
 # ============================================================
 def page_config():
     st.markdown("# ⚙️ Configuration"); st.markdown("---")
@@ -903,7 +1160,8 @@ def page_config():
         with ct:
             if st.button("🔌 Tester WP", use_container_width=True, key="btn_test_wp"):
                 ok, msg = srv.tester_connexion_wp(wp_base, wp_user, wp_pwd)
-                st.success(msg) if ok else st.error(msg)
+                if ok: st.success(msg)
+                else:  st.error(msg)
 
     with tab_ftp:
         st.markdown("#### Connexion FTP")
@@ -919,17 +1177,16 @@ def page_config():
         with ct:
             if st.button("🔌 Tester FTP", use_container_width=True, key="btn_test_ftp"):
                 ok, msg = srv.tester_connexion_ftp(ftp_host_input, ftp_user, ftp_pwd)
-                st.success(msg) if ok else st.error(msg)
+                if ok: st.success(msg)
+                else:  st.error(msg)
 
     with tab_theme:
         _render_theme_editor()
 
     with tab_integration:
         st.markdown("#### 🔗 Intégrer la veille sur une autre page")
-        st.markdown('<div style="font-size:13px;color:var(--subtext);margin-bottom:20px;">Une fois votre veille publiée sur FTP, copiez l\'un des snippets ci-dessous pour l\'afficher sur n\'importe quelle page web.</div>', unsafe_allow_html=True)
-
+        st.markdown('<div style="font-size:13px;color:var(--subtext);margin-bottom:20px;">Une fois votre veille publiée sur FTP, copiez l\'un des snippets ci-dessous.</div>', unsafe_allow_html=True)
         url_veille = st.text_input("URL publique de votre veille-ia.html", value=exemple_url, placeholder="https://monsite.com/veille-ia.html", key="integration_url")
-
         st.markdown("---")
         st.markdown("#### ⚙️ Options d'affichage")
         col_pos, col_larg = st.columns(2)
@@ -937,9 +1194,7 @@ def page_config():
             position = st.selectbox("Position", ["Centré (milieu)","Gauche","Droite","Pleine largeur"], key="iframe_position")
         with col_larg:
             largeur_px = st.number_input("Largeur (px) — ignorée si Pleine largeur", min_value=300, max_value=2000, value=900, step=50, key="iframe_largeur")
-
         hauteur_px = st.number_input("Hauteur de l'iframe (px)", min_value=400, max_value=5000, value=1800, step=100, key="iframe_hauteur")
-
         if position == "Pleine largeur":
             width_css = "100%"; wrapper_css = ""
         elif position == "Centré (milieu)":
@@ -948,11 +1203,8 @@ def page_config():
             width_css = f"{largeur_px}px"; wrapper_css = "text-align:left;"
         else:
             width_css = f"{largeur_px}px"; wrapper_css = "text-align:right;"
-
         st.markdown("---")
-        # Méthode 1 — auto-hauteur
         st.markdown('<div style="font-family:Space Mono;font-size:12px;color:var(--blue);margin-bottom:6px;">▶ Méthode 1 — iframe auto-hauteur (recommandée)</div>', unsafe_allow_html=True)
-        st.markdown('<div style="font-size:12px;color:var(--subtext);margin-bottom:8px;">L\'iframe s\'ajuste automatiquement à la hauteur du contenu.</div>', unsafe_allow_html=True)
         st.code(f"""<div style="{wrapper_css}">
 <div id="veille-container"></div>
 </div>
@@ -962,39 +1214,16 @@ document.getElementById("veille-container").innerHTML =
   '<iframe src="' + url + '" style="width:{width_css};border:none;" ' +
   'onload="this.style.height=this.contentDocument.body.scrollHeight+\\'px\\'"></iframe>';
 </script>""", language="html")
-
-        st.markdown('<div style="font-size:11px;color:var(--subtext);margin:4px 0 20px 0;">💡 Le <code>?v=Date.now()</code> force le rechargement à chaque visite.</div>', unsafe_allow_html=True)
-
-        # Méthode 2 — hauteur fixe
-        st.markdown('<div style="font-family:Space Mono;font-size:12px;color:var(--blue);margin-bottom:6px;">▶ Méthode 2 — iframe hauteur fixe</div>', unsafe_allow_html=True)
-        st.markdown(f'<div style="font-size:12px;color:var(--subtext);margin-bottom:8px;">Hauteur : {hauteur_px}px · Largeur : {width_css} · Position : {position}.</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-family:Space Mono;font-size:12px;color:var(--blue);margin-bottom:6px;margin-top:16px;">▶ Méthode 2 — iframe hauteur fixe</div>', unsafe_allow_html=True)
         st.code(f"""<div style="{wrapper_css}">
-<iframe
-  src="{url_veille}?v=TIMESTAMP"
-  style="width:{width_css}; height:{hauteur_px}px; border:none;"
-  loading="lazy">
+<iframe src="{url_veille}?v=TIMESTAMP"
+  style="width:{width_css}; height:{hauteur_px}px; border:none;" loading="lazy">
 </iframe>
 </div>""", language="html")
-        st.markdown('<div style="font-size:11px;color:var(--subtext);margin:4px 0 20px 0;">💡 Remplacez <code>TIMESTAMP</code> par la date du jour à chaque mise à jour.</div>', unsafe_allow_html=True)
-
-        # Méthode 3 — lien
-        st.markdown('<div style="font-family:Space Mono;font-size:12px;color:var(--blue);margin-bottom:6px;">▶ Méthode 3 — lien direct</div>', unsafe_allow_html=True)
-        st.code(f"""<a href="{url_veille}" target="_blank"
-   style="display:inline-block;padding:10px 20px;background:#89b4fa;
-          color:#1e1e2e;border-radius:8px;font-weight:bold;text-decoration:none;">
-  📡 Voir la veille technologique
-</a>""", language="html")
-
+        st.markdown('<div style="font-family:Space Mono;font-size:12px;color:var(--blue);margin-bottom:6px;margin-top:16px;">▶ Méthode 3 — lien direct</div>', unsafe_allow_html=True)
+        st.code(f'<a href="{url_veille}" target="_blank" style="display:inline-block;padding:10px 20px;background:#89b4fa;color:#1e1e2e;border-radius:8px;font-weight:bold;text-decoration:none;">📡 Voir la veille technologique</a>', language="html")
         st.markdown("---")
-        st.markdown(
-            '<div class="card card-accent" style="padding:14px 16px;">'
-            '<div style="font-size:13px;font-weight:600;color:var(--blue);margin-bottom:8px;">📝 Note WordPress</div>'
-            '<div style="font-size:12px;color:var(--subtext);line-height:1.8;">'
-            'WordPress filtre le HTML par défaut. Pour que les snippets fonctionnent :<br>'
-            '• Utilisez l\'éditeur en mode <strong style="color:var(--text)">HTML / Code source</strong><br>'
-            '• Ou installez le plugin <strong style="color:var(--text)">WPCode</strong><br>'
-            '• Ou utilisez un bloc <strong style="color:var(--text)">HTML personnalisé</strong>'
-            '</div></div>', unsafe_allow_html=True)
+        st.markdown('<div class="card card-accent" style="padding:14px 16px;"><div style="font-size:13px;font-weight:600;color:var(--blue);margin-bottom:8px;">📝 Note WordPress</div><div style="font-size:12px;color:var(--subtext);line-height:1.8;">WordPress filtre le HTML par défaut. Utilisez l\'éditeur <strong style="color:var(--text)">HTML / Code source</strong>, le plugin <strong style="color:var(--text)">WPCode</strong>, ou un bloc <strong style="color:var(--text)">HTML personnalisé</strong>.</div></div>', unsafe_allow_html=True)
 
     st.markdown("---")
     c1, c2 = st.columns(2)
@@ -1051,7 +1280,7 @@ def page_conformite():
         ("3) Finalités du traitement", "- Fournir le service de veille.\n- Générer des résumés et synthèses IA.\n- Publier sur les intégrations choisies.\n- Envoyer des emails automatiques si activé."),
         ("4) Base légale", "- **Consentement** : inscription et acceptation des CGU.\n- **Intérêt légitime** : sécurité, prévention des abus."),
         ("5) Durée de conservation", "- Compte : pendant la durée d'utilisation.\n- Historique : jusqu'à suppression par l'utilisateur.\n- Logs : durée limitée pour sécurité et diagnostic."),
-        ("6) Sous-traitants", "- Hébergement / BDD : Supabase (EU Frankfurt).\n- IA : Groq.\n- Email : Gmail SMTP.\n- Paiement : Stripe."),
+        ("6) Sous-traitants", "- Hébergement / BDD : Supabase.\n- IA : Groq.\n- Email : Gmail SMTP.\n- Paiement : Stripe."),
         ("7) Droits des personnes", "Accès, rectification, effacement, limitation, opposition, portabilité via : lucas.rajanysio@gmail.com"),
         ("8) Sécurité", "- Contrôle d'accès aux comptes.\n- Stockage segmenté par utilisateur.\n- Mesures techniques et organisationnelles."),
     ]
@@ -1095,3 +1324,8 @@ else:
             "conditions":  page_conditions,
             "conformite":  page_conformite,
         }.get(page, page_veille)()
+
+# ============================================================
+# CHATBOT — toujours affiché en dernier (widget flottant)
+# ============================================================
+render_chatbot()
