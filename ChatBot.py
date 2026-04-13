@@ -8,10 +8,6 @@ import os
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
-# ============================================================
-# CONTEXTE SYSTÈME — personnalise ici le comportement du bot
-# ============================================================
-
 SYSTEM_PROMPT = """Tu es l'assistant support de la plateforme "Veille IA", un outil de veille technologique automatisée créé par Lucas Rajany.
 
 Tu réponds uniquement aux questions liées à la plateforme. Tu es concis, amical, et tu répondas en français.
@@ -42,11 +38,6 @@ CONTACT : lucas.rajanysio@gmail.com
 Si une question est hors sujet (non liée à la plateforme), réponds poliment que tu ne peux répondre qu'aux questions liées à Veille IA.
 Réponds toujours en moins de 3 phrases sauf si une explication détaillée est vraiment nécessaire."""
 
-
-# ============================================================
-# QUESTIONS PRÉDÉFINIES (suggestions rapides)
-# ============================================================
-
 QUESTIONS_PREDEFINIES = [
     "Comment lancer une veille ?",
     "Pourquoi ça reste bloqué ?",
@@ -58,34 +49,15 @@ QUESTIONS_PREDEFINIES = [
     "Comment fonctionne la veille auto ?",
 ]
 
-
-# ============================================================
-# APPEL GROQ
-# ============================================================
-
 def repondre(historique_messages: list) -> str:
-    """
-    historique_messages : liste de dicts {"role": "user"|"assistant", "content": str}
-    Retourne la réponse de l'assistant (str).
-    """
     if not GROQ_API_KEY:
         return "⚠️ Clé API Groq manquante. Configurez la variable d'environnement GROQ_API_KEY."
-
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + historique_messages
-
     try:
         resp = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {GROQ_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "llama-3.1-8b-instant",
-                "max_tokens": 400,
-                "temperature": 0.5,
-                "messages": messages,
-            },
+            headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
+            json={"model": "llama-3.1-8b-instant", "max_tokens": 400, "temperature": 0.5, "messages": messages},
             timeout=20,
         )
         if resp.status_code == 200:
