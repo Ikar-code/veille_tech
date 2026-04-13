@@ -75,6 +75,14 @@ def _format_embedded_historique(historique: dict) -> str:
         return ""
 
 def extraire_historique_depuis_html(html: str) -> dict:
+    """
+    Extrait l'historique depuis un fichier veille-ia.html.
+
+    Méthode 1 (fichiers récents) : JSON embarqué dans <!--VEILLE_DATA:...-->.
+    Méthode 2 (anciens fichiers)  : parsing HTML direct — extrait sujets,
+      sessions, articles et synthèses depuis la structure HTML générée.
+    """
+    # ── Méthode 1 : JSON embarqué ─────────────────────────────
     try:
         debut = html.find(_FTP_DATA_MARKER)
         fin   = html.find(_FTP_DATA_END)
@@ -82,7 +90,103 @@ def extraire_historique_depuis_html(html: str) -> dict:
             return json.loads(html[debut + len(_FTP_DATA_MARKER):fin])
     except Exception:
         pass
-    return {}
+
+    # ── Méthode 2 : parsing HTML structurel ───────────────────
+    return _parser_html_veille_fallback(html)
+
+
+def _parser_html_veille_fallback(html: str) -> dict:
+    """
+    Parse un ancien fichier veille-ia.html sans JSON embarqué.
+    Extrait sujets (font-size:20px), sessions (Recherche du JJ/MM/AAAA),
+    articles (<strong> + <li color:#6c7086> + href), synthèses (border-left:#f9e2af).
+    """
+    historique = {}
+
+    # Découpe par bloc sujet : <div style="margin-bottom:32px;">
+    blocs = re.split(r"<div\s+style=['\"]margin-bottom:32px;?['\"]>", html)
+
+    for bloc in blocs[1:]:
+        # Titre du sujet (font-size:20px ou 18px)
+        m_sujet = re.search(
+            r'font-size:(?:20|18)px[^>]*>\s*([^<]+?)\s*</div>',
+            bloc, re.DOTALL)
+        if not m_sujet:
+            continue
+        sujet = m_sujet.group(1).strip().lower()
+        sujet = re.sub(r'\s+', ' ', sujet).replace('&amp;', '&').replace('&#39;', "'")
+        if not sujet:
+            continue
+
+        sessions = []
+
+        # Découpe par session : "Recherche du JJ/MM/AAAA"
+        parties = re.split(r'Recherche du\s+(\d{2}/\d{2}/\d{4})', bloc)
+
+        i = 1
+        while i + 1 < len(parties):
+            date_s  = parties[i].strip()
+            contenu = parties[i + 1]
+            i += 2
+
+            articles = []
+
+            # Articles : chaque <tr> (sans <th>)
+            for tr in re.findall(r'<tr>(.*?)</tr>', contenu, re.DOTALL):
+                if '<th' in tr:
+                    continue
+                m_titre = re.search(r'<strong>(.*?)</strong>', tr, re.DOTALL)
+                if not m_titre:
+                    continue
+                titre = re.sub(r'<[^>]+>', '', m_titre.group(1)).strip()
+                titre = re.sub(r'\s+', ' ', titre)
+
+                # Points-clés <li color:#6c7086>
+                points = re.findall(
+                    r"<li[^>]*color:#6c7086[^>]*>\s*([^<]+?)\s*</li>", tr)
+                if not points:
+                    points = re.findall(r'<li[^>]*>([^<]+)</li>', tr)
+                points = [p.strip() for p in points if len(p.strip()) > 15][:5]
+
+                m_href = re.search(r'href="(https?://[^"]+)"', tr)
+                if not m_href:
+                    continue
+                href = m_href.group(1)
+
+                if titre and href:
+                    articles.append({
+                        "title":          titre,
+                        "href":           href,
+                        "score":          50,
+                        "resume_ollama":  points or ["Résumé importé depuis HTML."],
+                        "date_recherche": date_s,
+                    })
+
+            # Synthèse globale (border-left:4px solid #f9e2af)
+            resume_global = ""
+            m_rg = re.search(
+                r'border-left:4px solid #f9e2af[^>]*>.*?'
+                r'<div[^>]*color:#cdd6f4[^>]*>(.*?)</div>\s*</div>',
+                contenu, re.DOTALL)
+            if m_rg:
+                rg_html = m_rg.group(1)
+                rg_text = re.sub(r"<div[^>]*font-weight:bold[^>]*>", "\n", rg_html)
+                rg_text = re.sub(r"<div[^>]*border-left[^>]*>",      "\n- ", rg_text)
+                rg_text = re.sub(r'<[^>]+>', '', rg_text)
+                rg_text = re.sub(r'\s+', ' ', rg_text).strip()
+                resume_global = rg_text[:3000]
+
+            if articles:
+                sessions.insert(0, {
+                    "date":          date_s,
+                    "articles":      articles,
+                    "resume_global": resume_global,
+                })
+
+        if sessions and sujet:
+            historique[sujet] = sessions
+
+    return historique
 
 # ============================================================
 # CONTEXTE STORAGE
@@ -633,7 +737,7 @@ def rechercher(sujet_brut, callback_statut=None):
     return filtres
 
 # ============================================================
-# GÉNÉRATION HTML
+# GÉNÉRATION HTML — nouvelle vue en grille avec accordéons
 # ============================================================
 
 _CSS_VUES = """
@@ -641,58 +745,27 @@ _CSS_VUES = """
 body{margin:0;padding:0}
 .maj-date{color:var(--sub);font-size:12px;margin:10px 20px 0;display:block}
 hr{border:none;border-top:1px solid var(--brd);margin:6px 20px 16px}
-
-/* ── Sujet accordéon principal ── */
 .sujet-block{border-bottom:2px solid var(--brd)}
-.sujet-header{
-    width:100%;display:flex;align-items:center;gap:12px;
-    background:var(--ov);color:var(--txt);
-    border:none;padding:16px 20px;cursor:pointer;text-align:left;
-    transition:background .15s;border-left:4px solid var(--blue);
-}
+.sujet-header{width:100%;display:flex;align-items:center;gap:12px;background:var(--ov);color:var(--txt);border:none;padding:16px 20px;cursor:pointer;text-align:left;transition:background .15s;border-left:4px solid var(--blue);}
 .sujet-header:hover{filter:brightness(1.12)}
 .sujet-title{font-weight:700;font-size:16px;flex:1;color:var(--blue)}
 .sujet-count{font-size:12px;color:var(--sub);background:var(--bg);padding:2px 12px;border-radius:12px}
 .sujet-arrow{font-size:13px;color:var(--sub);margin-left:8px}
 .sujet-body{padding:0 0 8px 0}
-
-/* ── Sessions repliées ── */
 .session-block{border-bottom:1px solid var(--brd)}
-.session-header{
-    width:100%;display:flex;align-items:center;gap:10px;
-    background:var(--surf);color:var(--txt);
-    border:none;padding:11px 20px 11px 32px;cursor:pointer;text-align:left;transition:background .15s;
-}
+.session-header{width:100%;display:flex;align-items:center;gap:10px;background:var(--surf);color:var(--txt);border:none;padding:11px 20px 11px 32px;cursor:pointer;text-align:left;transition:background .15s;}
 .session-header:hover{background:var(--ov)}
 .session-date{font-weight:600;font-size:13px}
 .session-meta{font-size:12px;color:var(--sub);flex:1}
 .sess-arrow{font-size:11px;color:var(--sub)}
 .badge-new{background:#a6e3a1;color:#1e1e2e;font-size:10px;padding:1px 7px;border-radius:8px;font-weight:700}
-
-/* ── Synthèse ── */
-.synth-box{
-    margin:14px 14px 10px 32px;padding:14px 16px;
-    background:linear-gradient(135deg,var(--bg),var(--surf));
-    border-left:4px solid var(--yel);border-radius:8px;
-}
+.synth-box{margin:14px 14px 10px 32px;padding:14px 16px;background:linear-gradient(135deg,var(--bg),var(--surf));border-left:4px solid var(--yel);border-radius:8px;}
 .synth-title{font-size:13px;font-weight:700;color:var(--yel);margin-bottom:10px}
 .synth-body{font-size:13px;color:var(--txt)}
-
-/* ── Grille articles ── */
-.articles-grid{
-    display:grid;
-    grid-template-columns:repeat(auto-fill,minmax(300px,1fr));
-    gap:10px;padding:12px 14px 14px 32px;
-}
-.art-card{
-    background:var(--surf);border:1px solid var(--brd);
-    border-radius:8px;padding:12px 14px;transition:border-color .15s;
-}
+.articles-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;padding:12px 14px 14px 32px;}
+.art-card{background:var(--surf);border:1px solid var(--brd);border-radius:8px;padding:12px 14px;transition:border-color .15s;}
 .art-card:hover{border-color:var(--blue)}
-.art-title{
-    color:var(--blue);font-size:13px;font-weight:600;
-    text-decoration:none;line-height:1.4;display:block;margin-bottom:6px;
-}
+.art-title{color:var(--blue);font-size:13px;font-weight:600;text-decoration:none;line-height:1.4;display:block;margin-bottom:6px;}
 .art-title:hover{text-decoration:underline}
 .art-meta{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
 .art-dom{font-size:11px;color:var(--sub)}
@@ -702,10 +775,7 @@ hr{border:none;border-top:1px solid var(--brd);margin:6px 20px 16px}
 .score-lo{background:rgba(243,139,168,.2);color:#f38ba8}
 .art-pts{margin:0;padding-left:16px;font-size:12px;color:var(--sub);line-height:1.6}
 .art-pts li{margin:2px 0}
-.badge-doublon{
-    font-size:10px;background:rgba(249,226,175,.2);color:#f9e2af;
-    border:1px solid #f9e2af;padding:1px 6px;border-radius:6px;margin-left:6px;
-}
+.badge-doublon{font-size:10px;background:rgba(249,226,175,.2);color:#f9e2af;border:1px solid #f9e2af;padding:1px 6px;border-radius:6px;margin-left:6px;}
 """
 
 _JS_VUES = """
@@ -937,9 +1007,10 @@ def publier_ftp(html_final: str) -> tuple:
     return _uploader_ftp(html_final)
 
 def _publier_ftp_avec_historique(_, historique_actuel: dict, theme: dict = None) -> tuple:
-    date_maj = datetime.now().strftime("%d/%m/%Y")
-    contenu  = generer_contenu_html(historique_actuel, date_maj)
-    html_final = generer_html_complet_theme(contenu, date_maj, theme, historique_actuel) if theme else generer_html_complet(contenu, date_maj, historique_actuel)
+    date_maj   = datetime.now().strftime("%d/%m/%Y")
+    contenu    = generer_contenu_html(historique_actuel, date_maj)
+    html_final = (generer_html_complet_theme(contenu, date_maj, theme, historique_actuel)
+                  if theme else generer_html_complet(contenu, date_maj, historique_actuel))
     ok, msg = _uploader_ftp(html_final)
     if ok:
         nb_s = len([k for k in historique_actuel if not k.startswith("__")])
