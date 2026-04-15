@@ -228,3 +228,52 @@ def get_user_email(user_id):
         return res.data.get("email", "")
     except Exception:
         return ""
+
+# ============================================================
+# CHAT — Mémoire persistante par utilisateur
+# ============================================================
+
+def charger_historique_chat(user_id: str, limite: int = 40) -> list:
+    """Charge les N derniers messages du chat pour un utilisateur."""
+    if not SUPABASE_OK or not user_id:
+        return []
+    try:
+        res = _db.table("chat_historique") \
+                 .select("role,content") \
+                 .eq("user_id", user_id) \
+                 .order("created_at", desc=False) \
+                 .limit(limite) \
+                 .execute()
+        return [{"role": r["role"], "content": r["content"]} for r in (res.data or [])]
+    except Exception as e:
+        print(f"Erreur charger_historique_chat : {e}")
+        return []
+
+def sauvegarder_message_chat(user_id: str, role: str, content: str) -> bool:
+    """Sauvegarde un message dans l'historique chat."""
+    if not SUPABASE_OK or not user_id:
+        return False
+    try:
+        _db.table("chat_historique").insert({
+            "user_id": user_id,
+            "role":    role,
+            "content": content,
+        }).execute()
+        return True
+    except Exception as e:
+        print(f"Erreur sauvegarder_message_chat : {e}")
+        return False
+
+def effacer_historique_chat(user_id: str) -> bool:
+    """Efface tout l'historique chat d'un utilisateur."""
+    if not SUPABASE_OK or not user_id:
+        return False
+    try:
+        _db.table("chat_historique") \
+           .delete() \
+           .eq("user_id", user_id) \
+           .execute()
+        return True
+    except Exception as e:
+        print(f"Erreur effacer_historique_chat : {e}")
+        return False
