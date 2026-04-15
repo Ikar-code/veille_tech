@@ -29,6 +29,7 @@ GMAIL_PASSWORD = os.environ.get("GMAIL_PASSWORD", _cfg.get("gmail_password", "")
 EMAIL_DEST     = _cfg.get("email_dest",    os.environ.get("EMAIL_DEST", ""))
 SUJETS         = _cfg.get("email_sujets",  os.environ.get("SUJETS", "intelligence artificielle"))
 
+
 def generer_email_html(sujet, articles, resume_global):
     date = datetime.now().strftime("%d/%m/%Y")
 
@@ -86,6 +87,7 @@ def generer_email_html(sujet, articles, resume_global):
 </body>
 </html>"""
 
+
 def envoyer_email(sujet_mail, html):
     if not GMAIL_USER or not GMAIL_PASSWORD or not EMAIL_DEST:
         print("Config email manquante")
@@ -105,6 +107,7 @@ def envoyer_email(sujet_mail, html):
     except Exception as e:
         print(f"Erreur envoi email : {e}")
         return False
+
 
 def main():
     date = datetime.now().strftime("%d/%m/%Y")
@@ -144,9 +147,9 @@ def main():
             print(f"  WordPress : {res.get('wordpress',(False,'?'))[1]}")
             print(f"  FTP       : {res.get('ftp',(False,'?'))[1]}")
 
-            # Récupère les articles et le résumé sauvegardés dans l'historique
-            historique   = serveur.charger_historique()
-            sessions     = historique.get(sujet.strip().lower(), [])
+            # Récupère les articles et le résumé depuis l'historique sauvegardé
+            historique     = serveur.charger_historique()
+            sessions       = historique.get(sujet.strip().lower(), [])
             articles_email = sessions[0].get("articles", []) if sessions else []
             resume_email   = sessions[0].get("resume_global", "") if sessions else ""
 
@@ -173,7 +176,30 @@ def main():
 
             print("Synthèse globale...")
             time.sleep(5)
+
+            # generer_resume_global attend (sujet, articles) — pas de 3e argument
             resume_email = serveur.generer_resume_global(sujet, articles_email)
+
+            # Sauvegarde l'historique pour éviter les doublons aux prochaines exécutions
+            session_du_jour = next((s for s in sessions if s.get("date") == date), None)
+            if session_du_jour:
+                session_du_jour["articles"].extend(articles_email)
+                session_du_jour["resume_global"] = resume_email
+            else:
+                sessions.insert(0, {
+                    "date":          date,
+                    "articles":      articles_email,
+                    "resume_global": resume_email,
+                })
+            historique[sujet_norm] = sessions
+            serveur.sauvegarder_historique(historique)
+            print(f"  {len(articles_email)} articles sauvegardés dans l'historique")
+
+            # Publication FTP si configuré (même sans WP)
+            if serveur.ftp_est_configure():
+                print("Upload FTP...")
+                ftp_ok, ftp_msg = serveur._publier_ftp_avec_historique(None, historique, theme_ftp)
+                print(f"  FTP : {'✓' if ftp_ok else '✗'} {ftp_msg}")
 
         # Envoi email
         if EMAIL_DEST and articles_email:
@@ -185,6 +211,7 @@ def main():
             print("Email non configuré — envoi ignoré")
         else:
             print("Aucun nouvel article — email ignoré")
+
 
 if __name__ == "__main__":
     main()
