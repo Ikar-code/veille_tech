@@ -135,9 +135,7 @@ def traiter_utilisateur(user_id: str, sujets_str: str, email_dest: str):
                 print("      Aucun résultat.")
                 continue
 
-            # ── 4. Résumés IA + sauvegarde historique MANUELLEMENT ──
-            # On ne passe pas par workflow_publier pour le cron car
-            # on veut contrôler exactement ce qui est sauvegardé.
+            # ── 4. Résumés IA + sauvegarde historique ─────────────
             limite     = int(cfg.get("auto_limite", 10))
             historique = storage.charger_historique()
             sessions   = historique.get(sujet_lower, [])
@@ -171,8 +169,6 @@ def traiter_utilisateur(user_id: str, sujets_str: str, email_dest: str):
             resume_global = srv.generer_resume_global(sujet_lower, nouveaux)
 
             # ── 5. Sauvegarde dans Supabase ───────────────────────
-            # storage.set_user est déjà actif → charger/sauvegarder_historique
-            # utilisent bien _current_user_id
             session_du_jour = next((s for s in sessions if s.get("date") == date_jour), None)
             if session_du_jour:
                 session_du_jour["articles"].extend(nouveaux)
@@ -184,26 +180,21 @@ def traiter_utilisateur(user_id: str, sujets_str: str, email_dest: str):
                     "resume_global": resume_global,
                 })
             historique[sujet_lower] = sessions
-
-            # Appel direct storage (pas via srv) pour être sûr que
-            # _current_user_id est bien positionné
             storage.sauvegarder_historique(historique)
             print(f"      ✓ {len(nouveaux)} articles sauvegardés dans Supabase")
 
             # ── 6. Publication WordPress si configuré ─────────────
-            wp_ok = False
             if cfg.get("wp_base") and cfg.get("wp_user") and cfg.get("wp_password"):
                 try:
-                    date     = datetime.now().strftime("%d/%m/%Y")
-                    contenu  = srv.generer_contenu_html(historique, date, theme)
-                    page_id  = srv.obtenir_ou_creer_page()
+                    # generer_contenu_html ne prend plus que 2 arguments (sans theme)
+                    contenu = srv.generer_contenu_html(historique, date_jour)
+                    page_id = srv.obtenir_ou_creer_page()
                     wp_ok, wp_msg = srv.publier_wordpress(contenu, page_id)
                     print(f"      WP  : {'✓' if wp_ok else '✗'} {wp_msg}")
                 except Exception as e:
                     print(f"      WP  : ✗ {e}")
 
             # ── 7. Publication FTP si configuré ───────────────────
-            ftp_ok = False
             if cfg.get("ftp_host") and cfg.get("ftp_user") and cfg.get("ftp_password"):
                 try:
                     ftp_ok, ftp_msg = srv._publier_ftp_avec_historique(None, historique, theme)
@@ -231,10 +222,9 @@ def traiter_utilisateur(user_id: str, sujets_str: str, email_dest: str):
         print("    ⚠ Aucun article — email ignoré")
         return
 
-    date       = datetime.now().strftime("%d/%m/%Y")
     resume_all = "\n\n".join(resumes_email) if resumes_email else ""
     html       = generer_email_html(sujets_str, articles_email, resume_all)
-    titre_mail = f"Veille IA — {date} · {len(articles_email)} article(s) · {len(sous_sujets)} sujet(s)"
+    titre_mail = f"Veille IA — {date_jour} · {len(articles_email)} article(s) · {len(sous_sujets)} sujet(s)"
     ok         = envoyer_email(email_dest, titre_mail, html)
     print(f"    Email : {'✓ envoyé' if ok else '✗ ERREUR'} → {email_dest}")
 
