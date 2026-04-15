@@ -255,6 +255,7 @@ def _init_state():
         "chat_ouvert":   False,
         "chat_messages": [],
         "chat_sug_used": False,
+        "chat_history_loaded": False,  # flag pour ne charger qu'une fois
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -276,6 +277,19 @@ if AUTH_OK and not st.session_state.get("user"):
                     break
     except Exception:
         pass
+
+# ── Charge l'historique chat depuis Supabase au démarrage ──
+# (une seule fois par session, seulement si l'utilisateur est connecté)
+_uid_actuel = st.session_state.get("user") and st.session_state["user"].id
+if _uid_actuel and STORAGE_OK and not st.session_state.get("chat_history_loaded"):
+    try:
+        hist_chat = storage.charger_historique_chat(_uid_actuel, limite=40)
+        if hist_chat:
+            st.session_state["chat_messages"] = hist_chat
+            st.session_state["chat_sug_used"] = True  # ne pas montrer les suggestions si historique existant
+    except Exception:
+        pass
+    st.session_state["chat_history_loaded"] = True
 
 # ============================================================
 # HELPERS
@@ -381,14 +395,14 @@ def _appliquer_theme(valeurs: dict):
 # CHATBOT WIDGET FLOTTANT
 # ============================================================
 def render_chatbot():
-    """Widget chatbot flottant en bas à droite — LLaMA via Groq."""
+    """Widget chatbot flottant en bas à droite — LLaMA via Groq avec mémoire Supabase."""
 
     msgs      = st.session_state["chat_messages"]
     ouvert    = st.session_state["chat_ouvert"]
     sug_used  = st.session_state["chat_sug_used"]
+    uid       = _user_id()
 
     # ── Bouton FAB ────────────────────────────────────────────
-    # On injecte le FAB en HTML pur pour qu'il reste bien fixe
     fab_icon  = "✕" if ouvert else "💬"
     fab_label = "Fermer le support" if ouvert else "Support Veille IA"
     st.markdown(
@@ -398,21 +412,16 @@ def render_chatbot():
         f'</div>',
         unsafe_allow_html=True)
 
-    # ── Script toggle — évite un rerun complet pour ouvrir/fermer ──
-    # On utilise un formulaire Streamlit caché pour propager l'état
     with st.form("chat_fab_form", clear_on_submit=True):
         fab_clicked = st.form_submit_button("toggle_chat", use_container_width=False)
-    # On cache ce bouton via JS
     st.markdown("""
     <script>
     function window._chatToggle(){
-        // Trouve le bouton Streamlit caché et le clique
         var btns = window.parent.document.querySelectorAll('button');
         for(var b of btns){
             if(b.innerText.trim()==='toggle_chat'){b.click();break;}
         }
     }
-    // Cache le bouton Streamlit
     (function hide(){
         var btns = window.parent.document.querySelectorAll('button');
         for(var b of btns){if(b.innerText.trim()==='toggle_chat'){b.style.display='none';}}
@@ -480,7 +489,11 @@ def render_chatbot():
                     st.session_state["chat_messages"].append({"role":"user","content":q})
                     st.session_state["chat_sug_used"] = True
                     with st.spinner("…"):
-                        rep = chatbot.repondre(st.session_state["chat_messages"])
+                        # Utilise la mémoire Supabase si connecté, sinon fallback local
+                        if uid and STORAGE_OK:
+                            rep = chatbot.repondre_avec_memoire(uid, q)
+                        else:
+                            rep = chatbot.repondre(st.session_state["chat_messages"])
                     st.session_state["chat_messages"].append({"role":"assistant","content":rep})
                     st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
@@ -502,11 +515,15 @@ def render_chatbot():
         msg_txt = str(user_input).strip()
         st.session_state["chat_messages"].append({"role":"user","content":msg_txt})
         st.session_state["chat_sug_used"] = True
-        # Limite l'historique à 20 messages pour ne pas exploser le contexte Groq
+        # Limite l'historique local à 20 messages pour ne pas exploser le contexte Groq
         if len(st.session_state["chat_messages"]) > 20:
             st.session_state["chat_messages"] = st.session_state["chat_messages"][-20:]
         with st.spinner("…"):
-            rep = chatbot.repondre(st.session_state["chat_messages"])
+            # Utilise la mémoire Supabase si connecté, sinon fallback local
+            if uid and STORAGE_OK:
+                rep = chatbot.repondre_avec_memoire(uid, msg_txt)
+            else:
+                rep = chatbot.repondre(st.session_state["chat_messages"])
         st.session_state["chat_messages"].append({"role":"assistant","content":rep})
         st.rerun()
 
@@ -514,6 +531,12 @@ def render_chatbot():
     col_cl, col_info = st.columns([1, 2])
     with col_cl:
         if st.button("🗑 Effacer", key="chat_clear", use_container_width=True):
+            # Efface aussi dans Supabase si connecté
+            if uid and STORAGE_OK:
+                try:
+                    storage.effacer_historique_chat(uid)
+                except Exception:
+                    pass
             st.session_state["chat_messages"] = []
             st.session_state["chat_sug_used"] = False
             st.rerun()
@@ -573,7 +596,9 @@ def render_sidebar():
                     try: storage.set_user(None)
                     except Exception: pass
                 st.session_state.update({"user":None,"session":None,"profil":{},
-                    "page":"accueil","dernier_log":"","recherche_terminee":False,"derniere_publication":None})
+                    "page":"accueil","dernier_log":"","recherche_terminee":False,
+                    "derniere_publication":None,"chat_messages":[],"chat_sug_used":False,
+                    "chat_history_loaded":False})
                 st.rerun()
         else:
             st.markdown('<div style="font-size:12px;color:var(--subtext);text-align:center;margin-bottom:12px;">Connectez-vous pour accéder à la plateforme</div>', unsafe_allow_html=True)
@@ -611,7 +636,8 @@ def page_accueil():
                         res = auth.connecter(email, pwd)
                     if res["ok"]:
                         st.session_state.update({"user":res["user"],"session":res["session"],
-                            "profil":auth.get_profil(res["user"].id),"page":"veille"})
+                            "profil":auth.get_profil(res["user"].id),"page":"veille",
+                            "chat_history_loaded":False})
                         _activer_storage(res["user"].id); st.rerun()
                     else:
                         st.error(res["message"])
