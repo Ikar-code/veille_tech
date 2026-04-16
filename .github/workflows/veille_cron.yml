@@ -2,33 +2,41 @@ name: Veille automatique
 
 on:
   schedule:
-    # Tourne toutes les heures à la minute 0
-    - cron: '0 * * * *'
-  # Permet aussi de lancer manuellement depuis GitHub
+    # Toutes les heures, minute 0
+    - cron: "0 * * * *"
   workflow_dispatch:
+    # Permet de lancer manuellement depuis l'interface GitHub
 
 jobs:
   veille-cron:
+    name: Veille automatique
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 55   # Juste en dessous de la limite horaire
 
     steps:
-      - name: Checkout du code
+      # ── 1. Checkout du repo ────────────────────────────────
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Installation Python
+      # ── 2. Python 3.11 ────────────────────────────────────
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-          cache: 'pip'
+          python-version: "3.11"
+          cache: "pip"
 
-      - name: Installation des dépendances
-        run: pip install -r requirements.txt
+      # ── 3. Dépendances ────────────────────────────────────
+      - name: Installer les dépendances
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      - name: Lancement de la veille automatique
+      # ── 4. Lancement du cron ──────────────────────────────
+      - name: Lancer la veille
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
+          GROQ_API_KEY:         ${{ secrets.GROQ_API_KEY }}
+          GMAIL_USER:           ${{ secrets.GMAIL_USER }}
+          GMAIL_PASSWORD:       ${{ secrets.GMAIL_PASSWORD }}
         run: python cron.py
