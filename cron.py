@@ -19,11 +19,63 @@ try:
 except Exception:
     pass
 
-import serveur as srv
-import storage
+# ============================================================
+# IMPORTS AVEC DIAGNOSTIC CLAIR
+# ============================================================
+
+_erreurs_import = []
+
+try:
+    import serveur as srv
+except ImportError as e:
+    _erreurs_import.append(f"serveur : {e}")
+    srv = None
+
+try:
+    import storage
+except ImportError as e:
+    _erreurs_import.append(f"storage : {e}")
+    storage = None
+
+if _erreurs_import:
+    print("✗ Erreurs d'import détectées :")
+    for err in _erreurs_import:
+        print(f"  - {err}")
+    print("\nVérifiez que tous les fichiers sont bien présents dans le repo.")
+    sys.exit(1)
 
 GMAIL_USER     = os.environ.get("GMAIL_USER", "")
 GMAIL_PASSWORD = os.environ.get("GMAIL_PASSWORD", "")
+
+# ============================================================
+# VÉRIFICATION DES VARIABLES D'ENVIRONNEMENT
+# ============================================================
+
+def verifier_env() -> bool:
+    """Vérifie les variables critiques et affiche un diagnostic."""
+    manquantes = []
+
+    if not os.environ.get("SUPABASE_URL"):
+        manquantes.append("SUPABASE_URL")
+    if not os.environ.get("SUPABASE_SERVICE_KEY") and not os.environ.get("SUPABASE_KEY"):
+        manquantes.append("SUPABASE_SERVICE_KEY (ou SUPABASE_KEY)")
+
+    if not os.environ.get("GROQ_API_KEY"):
+        print("  ⚠ GROQ_API_KEY manquante — résumés IA désactivés")
+    if not GMAIL_USER:
+        print("  ⚠ GMAIL_USER manquante — emails désactivés")
+    if not GMAIL_PASSWORD:
+        print("  ⚠ GMAIL_PASSWORD manquante — emails désactivés")
+
+    if manquantes:
+        print("✗ Variables d'environnement obligatoires manquantes :")
+        for v in manquantes:
+            print(f"  - {v}")
+        print("\nAjoutez-les dans :")
+        print("  GitHub → Settings → Secrets and variables → Actions")
+        return False
+    return True
+
 
 # ============================================================
 # EMAIL HTML
@@ -112,7 +164,12 @@ def traiter_utilisateur(user_id: str, sujets_str: str, email_dest: str):
     srv.set_storage_context(storage)
 
     # ── 2. Charge sa config (FTP, WP, thème) ───────────────────
-    cfg   = storage.charger_config()
+    try:
+        cfg = storage.charger_config()
+    except Exception as e:
+        print(f"  ✗ Impossible de charger la config : {e}")
+        cfg = {}
+
     theme = None
     if "theme_ftp" in cfg:
         try:
@@ -163,12 +220,12 @@ def traiter_utilisateur(user_id: str, sujets_str: str, email_dest: str):
                 print("      Pas de nouveaux articles.")
                 continue
 
-            # Résumé global
+            # ── 5. Résumé global ──────────────────────────────────
             print("      Synthèse globale…")
             time.sleep(10)
             resume_global = srv.generer_resume_global(sujet_lower, nouveaux)
 
-            # ── 5. Sauvegarde dans Supabase ───────────────────────
+            # ── 6. Sauvegarde dans Supabase ───────────────────────
             session_du_jour = next((s for s in sessions if s.get("date") == date_jour), None)
             if session_du_jour:
                 session_du_jour["articles"].extend(nouveaux)
@@ -183,10 +240,9 @@ def traiter_utilisateur(user_id: str, sujets_str: str, email_dest: str):
             storage.sauvegarder_historique(historique)
             print(f"      ✓ {len(nouveaux)} articles sauvegardés dans Supabase")
 
-            # ── 6. Publication WordPress si configuré ─────────────
+            # ── 7. Publication WordPress si configuré ─────────────
             if cfg.get("wp_base") and cfg.get("wp_user") and cfg.get("wp_password"):
                 try:
-                    # generer_contenu_html ne prend plus que 2 arguments (sans theme)
                     contenu = srv.generer_contenu_html(historique, date_jour)
                     page_id = srv.obtenir_ou_creer_page()
                     wp_ok, wp_msg = srv.publier_wordpress(contenu, page_id)
@@ -194,7 +250,7 @@ def traiter_utilisateur(user_id: str, sujets_str: str, email_dest: str):
                 except Exception as e:
                     print(f"      WP  : ✗ {e}")
 
-            # ── 7. Publication FTP si configuré ───────────────────
+            # ── 8. Publication FTP si configuré ───────────────────
             if cfg.get("ftp_host") and cfg.get("ftp_user") and cfg.get("ftp_password"):
                 try:
                     ftp_ok, ftp_msg = srv._publier_ftp_avec_historique(None, historique, theme)
@@ -210,14 +266,18 @@ def traiter_utilisateur(user_id: str, sujets_str: str, email_dest: str):
             time.sleep(5)
 
         except Exception as e:
-            print(f"      ✗ Erreur : {e}")
+            print(f"      ✗ Erreur sujet «{sujet}» : {e}")
             import traceback
             traceback.print_exc()
+            # Continue avec le sujet suivant — ne pas planter tout le cron
 
-    # ── 8. Marque l'exécution ─────────────────────────────────
-    storage.marquer_execution(user_id)
+    # ── 9. Marque l'exécution ─────────────────────────────────
+    try:
+        storage.marquer_execution(user_id)
+    except Exception as e:
+        print(f"  ⚠ marquer_execution : {e}")
 
-    # ── 9. Envoi email ────────────────────────────────────────
+    # ── 10. Envoi email ───────────────────────────────────────
     if not articles_email:
         print("    ⚠ Aucun article — email ignoré")
         return
@@ -243,31 +303,68 @@ def main():
     print(f"  Utilisateurs programmés à {heure:02d}h{minute:02d} UTC")
     print(f"{'='*56}")
 
-    if not storage.SUPABASE_OK:
+    # ── Vérifie les variables d'environnement ─────────────────
+    if not verifier_env():
+        sys.exit(1)
+
+    # ── Vérifie Supabase ──────────────────────────────────────
+    if not getattr(storage, "SUPABASE_OK", False):
         print("✗ Supabase indisponible — vérifiez SUPABASE_URL / SUPABASE_SERVICE_KEY")
         sys.exit(1)
 
-    utilisateurs = storage.lister_utilisateurs_a_notifier(heure, minute)
+    print("  ✓ Supabase OK")
+
+    # ── Récupère les utilisateurs à notifier ──────────────────
+    try:
+        utilisateurs = storage.lister_utilisateurs_a_notifier(heure, minute)
+    except Exception as e:
+        print(f"✗ Impossible de récupérer les utilisateurs : {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
     if not utilisateurs:
         print("  Aucun utilisateur programmé à cette heure.")
+        print(f"  (heure UTC actuelle : {heure:02d}h{minute:02d})")
         return
 
     print(f"  {len(utilisateurs)} utilisateur(s) à traiter")
 
+    nb_ok  = 0
+    nb_err = 0
+
     for u in utilisateurs:
         user_id = u.get("user_id", "")
         sujets  = u.get("sujets", "").strip()
-        email   = storage.get_user_email(user_id)
+
+        try:
+            email = storage.get_user_email(user_id)
+        except Exception as e:
+            print(f"  ✗ get_user_email({user_id[:8]}…) : {e}")
+            nb_err += 1
+            continue
+
         if not email:
             print(f"  ✗ Email introuvable pour {user_id[:8]}… — ignoré")
+            nb_err += 1
             continue
         if not sujets:
             print(f"  ✗ Aucun sujet pour {email} — ignoré")
+            nb_err += 1
             continue
-        traiter_utilisateur(user_id, sujets, email)
 
-    print(f"\n  Cron terminé — {datetime.now(timezone.utc).strftime('%H:%M UTC')}")
+        try:
+            traiter_utilisateur(user_id, sujets, email)
+            nb_ok += 1
+        except Exception as e:
+            print(f"  ✗ Erreur critique pour {email} : {e}")
+            import traceback
+            traceback.print_exc()
+            nb_err += 1
+            # Continue avec l'utilisateur suivant
+
+    print(f"\n  Résumé : {nb_ok} OK, {nb_err} erreur(s)")
+    print(f"  Cron terminé — {datetime.now(timezone.utc).strftime('%H:%M UTC')}")
     print(f"{'='*56}\n")
 
 
