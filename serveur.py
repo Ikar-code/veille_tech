@@ -192,14 +192,15 @@ def _parser_html_veille_fallback(html: str) -> dict:
 # CONTEXTE STORAGE
 # ============================================================
 
-import threading
-_storage_local = threading.local()
+# APRÈS — supprime threading.local
+_storage_ctx = None
 
 def set_storage_context(ctx):
-    _storage_local.ctx = ctx
+    global _storage_ctx
+    _storage_ctx = ctx
 
 def get_storage_context():
-    return getattr(_storage_local, 'ctx', None)
+    return _storage_ctx
 
 def _charger_config_ctx():
     ctx = get_storage_context()
