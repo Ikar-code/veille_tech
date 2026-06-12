@@ -1032,11 +1032,12 @@ def _render_panneau_publication(uid, abonne):
     cible_ftp = btn_ftp or btn_both
 
     if (cible_wp or cible_ftp) and not st.session_state.get("en_cours_pub",False):
-        st.session_state["en_cours_pub"] = True
-        pub_result = {"ok_wp":None,"msg_wp":"","ok_ftp":None,"msg_ftp":""}
-        with st.spinner("Génération des résumés IA et publication…"):
-            try:
-                if mode_pub == "Mise à jour page" or cible_ftp:
+    st.session_state["en_cours_pub"] = True
+    pub_result = {"ok_wp":None,"msg_wp":"","ok_ftp":None,"msg_ftp":""}
+    with st.spinner("Génération des résumés IA et publication…"):
+        try:
+            _activer_storage(_user_id())  # ← AJOUT : réactive le contexte avant chaque publication
+            if mode_pub == "Mise à jour page" or cible_ftp:
                     res = srv.workflow_publier(sujet, st.session_state["resultats"], callback_statut=_log,
                                               limite=int(nb_articles), theme_ftp=st.session_state.get("theme_ftp"),
                                               publier_wp=bool(cible_wp), publier_ftp_flag=bool(cible_ftp))
