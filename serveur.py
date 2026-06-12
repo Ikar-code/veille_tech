@@ -826,10 +826,12 @@ def _formater_resume_html(texte, articles_ref):
             html += f"<div style='font-size:13px;font-weight:bold;color:var(--yel);margin:14px 0 6px 0;'>— {ligne.lstrip('# ').rstrip(': ').strip()}</div>"
         elif ligne.startswith(("- ","* ","• ")):
             point = re.sub(r'\*\*', '', ligne.lstrip("-*• ").strip()).replace("<","&lt;").replace(">","&gt;")
-            html += f"<div style='padding:3px 0 3px 14px;border-left:2px solid var(--brd);margin:3px 0;line-height:1.6;'>{re.sub(r'\\[(\\d+)\\]', remplacer_citation, point)}</div>"
+            point = re.sub(r'\[(\d+)\]', remplacer_citation, point)
+            html += f"<div style='padding:3px 0 3px 14px;border-left:2px solid var(--brd);margin:3px 0;line-height:1.6;'>{point}</div>"
         else:
             ligne = re.sub(r'\*\*', '', ligne).replace("<","&lt;").replace(">","&gt;")
-            html += f"<p style='margin:6px 0;line-height:1.7;'>{re.sub(r'\\[(\\d+)\\]', remplacer_citation, ligne)}</p>"
+            ligne = re.sub(r'\[(\d+)\]', remplacer_citation, ligne)
+            html += f"<p style='margin:6px 0;line-height:1.7;'>{ligne}</p>"
     return html
 
 def _generer_bloc_sessions(sujet: str, sessions: list) -> str:
