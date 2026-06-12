@@ -594,7 +594,7 @@ def render_sidebar():
             st.markdown('<p style="font-size:11px;color:var(--subtext);text-align:center;">Veille auto · Groq · DuckDuckGo</p>', unsafe_allow_html=True)
 
 # ============================================================
-# PAGE ACCUEIL / AUTH  ← CORRIGÉE
+# PAGE ACCUEIL / AUTH
 # ============================================================
 def page_accueil():
     if not AUTH_OK:
@@ -613,12 +613,10 @@ def page_accueil():
 
         with tab_co:
             st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-            # ── Les widgets écrivent dans st.session_state["login_email"] / ["login_pwd"]
             st.text_input("Email", key="login_email", placeholder="votre@email.com")
             st.text_input("Mot de passe", type="password", key="login_pwd")
 
             if st.button("Se connecter", use_container_width=True, type="primary", key="btn_login"):
-                # ── CORRECTION : lire depuis session_state, pas les variables locales ──
                 email_val = st.session_state.get("login_email", "").strip()
                 pwd_val   = st.session_state.get("login_pwd",   "").strip()
                 if not email_val or not pwd_val:
@@ -642,7 +640,6 @@ def page_accueil():
             st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
             if st.button("Mot de passe oublié ?", use_container_width=True, key="btn_reset_pwd"):
-                # ── CORRECTION : même principe ──
                 email_val = st.session_state.get("login_email", "").strip()
                 if email_val:
                     res = auth.reinitialiser_mot_de_passe(email_val)
@@ -670,7 +667,6 @@ def page_accueil():
             st.markdown('<div style="font-size:11px;color:var(--subtext);margin:8px 0;">En créant un compte vous acceptez nos CGU.</div>', unsafe_allow_html=True)
 
             if st.button("Créer mon compte", use_container_width=True, type="primary", key="btn_register"):
-                # ── CORRECTION : lire depuis session_state ──
                 email2 = st.session_state.get("reg_email",  "").strip()
                 pwd2   = st.session_state.get("reg_pwd",    "").strip()
                 pwd2b  = st.session_state.get("reg_pwd2",   "").strip()
@@ -981,7 +977,7 @@ def page_veille():
         st.rerun()
     elif st.session_state["en_cours"] and st.session_state.get("sujet_courant"):
         sujet_run = st.session_state["sujet_courant"]
-        _activer_storage(_user_id())  # ← AJOUT : réactive avant la recherche aussi
+        _activer_storage(_user_id())  # ← réactive le contexte storage avant la recherche
         try:
             resultats = srv.rechercher(sujet_run, callback_statut=_log)
             st.session_state["resultats"] = resultats
@@ -996,6 +992,7 @@ def page_veille():
 
     if st.session_state.get("recherche_terminee") and st.session_state["resultats"] and not st.session_state["en_cours"]:
         _render_panneau_publication(uid, abonne)
+
 
 def _render_panneau_publication(uid, abonne):
     nb_r   = len(st.session_state["resultats"])
@@ -1032,24 +1029,34 @@ def _render_panneau_publication(uid, abonne):
     cible_wp  = btn_wp  or btn_both
     cible_ftp = btn_ftp or btn_both
 
-    if (cible_wp or cible_ftp) and not st.session_state.get("en_cours_pub",False):
-    st.session_state["en_cours_pub"] = True
-    pub_result = {"ok_wp":None,"msg_wp":"","ok_ftp":None,"msg_ftp":""}
-    with st.spinner("Génération des résumés IA et publication…"):
-        try:
-            _activer_storage(_user_id())  # ← AJOUT : réactive le contexte avant chaque publication
-            if mode_pub == "Mise à jour page" or cible_ftp:
-                    res = srv.workflow_publier(sujet, st.session_state["resultats"], callback_statut=_log,
-                                              limite=int(nb_articles), theme_ftp=st.session_state.get("theme_ftp"),
-                                              publier_wp=bool(cible_wp), publier_ftp_flag=bool(cible_ftp))
-                    if "wordpress" in res: pub_result["ok_wp"],pub_result["msg_wp"] = res["wordpress"]
-                    if "ftp"       in res: pub_result["ok_ftp"],pub_result["msg_ftp"] = res["ftp"]
+    if (cible_wp or cible_ftp) and not st.session_state.get("en_cours_pub", False):
+        st.session_state["en_cours_pub"] = True
+        pub_result = {"ok_wp": None, "msg_wp": "", "ok_ftp": None, "msg_ftp": ""}
+        with st.spinner("Génération des résumés IA et publication…"):
+            try:
+                _activer_storage(_user_id())  # ← réactive le contexte storage avant la publication
+                if mode_pub == "Mise à jour page" or cible_ftp:
+                    res = srv.workflow_publier(
+                        sujet, st.session_state["resultats"],
+                        callback_statut=_log,
+                        limite=int(nb_articles),
+                        theme_ftp=st.session_state.get("theme_ftp"),
+                        publier_wp=bool(cible_wp),
+                        publier_ftp_flag=bool(cible_ftp),
+                    )
+                    if "wordpress" in res: pub_result["ok_wp"],  pub_result["msg_wp"]  = res["wordpress"]
+                    if "ftp"       in res: pub_result["ok_ftp"], pub_result["msg_ftp"] = res["ftp"]
                 elif mode_pub == "Créer un post" and cible_wp:
-                    ok, msg = srv.workflow_creer_post(sujet, st.session_state["resultats"][:int(nb_articles)], callback_statut=_log)
-                    pub_result["ok_wp"],pub_result["msg_wp"] = ok, msg
+                    ok, msg = srv.workflow_creer_post(
+                        sujet,
+                        st.session_state["resultats"][:int(nb_articles)],
+                        callback_statut=_log,
+                    )
+                    pub_result["ok_wp"], pub_result["msg_wp"] = ok, msg
             except Exception as e:
                 _log(f"❌ Erreur publication : {e}")
-                pub_result["msg_wp"] = pub_result["msg_ftp"] = f"Erreur : {e}"
+                pub_result["msg_wp"]  = f"Erreur : {e}"
+                pub_result["msg_ftp"] = f"Erreur : {e}"
         st.session_state["derniere_publication"] = pub_result
         st.session_state["en_cours_pub"]         = False
         st.rerun()
