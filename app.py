@@ -981,6 +981,7 @@ def page_veille():
         st.rerun()
     elif st.session_state["en_cours"] and st.session_state.get("sujet_courant"):
         sujet_run = st.session_state["sujet_courant"]
+        _activer_storage(_user_id())  # ← AJOUT : réactive avant la recherche aussi
         try:
             resultats = srv.rechercher(sujet_run, callback_statut=_log)
             st.session_state["resultats"] = resultats
