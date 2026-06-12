@@ -191,33 +191,41 @@ def _parser_html_veille_fallback(html: str) -> dict:
 # ============================================================
 # CONTEXTE STORAGE
 # ============================================================
-_storage_context = None
+
+import threading
+_storage_local = threading.local()
 
 def set_storage_context(ctx):
-    global _storage_context
-    _storage_context = ctx
+    _storage_local.ctx = ctx
+
+def get_storage_context():
+    return getattr(_storage_local, 'ctx', None)
 
 def _charger_config_ctx():
-    if _storage_context:
-        try: return _storage_context.charger_config()
+    ctx = get_storage_context()
+    if ctx:
+        try: return ctx.charger_config()
         except Exception: pass
     return charger_config_local()
 
 def _sauvegarder_config_ctx(cfg):
-    if _storage_context:
-        try: _storage_context.sauvegarder_config(cfg); return
+    ctx = get_storage_context()
+    if ctx:
+        try: ctx.sauvegarder_config(cfg); return
         except Exception: pass
     sauvegarder_config_local(cfg)
 
 def _charger_historique_ctx():
-    if _storage_context:
-        try: return _storage_context.charger_historique()
+    ctx = get_storage_context()
+    if ctx:
+        try: return ctx.charger_historique()
         except Exception: pass
     return charger_historique_local()
 
 def _sauvegarder_historique_ctx(h):
-    if _storage_context:
-        try: _storage_context.sauvegarder_historique(h); return
+    ctx = get_storage_context()
+    if ctx:
+        try: ctx.sauvegarder_historique(h); return
         except Exception: pass
     sauvegarder_historique_local(h)
 
