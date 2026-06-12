@@ -31,6 +31,21 @@ def get_user():
     return _current_user_id
 
 
+def _upsert_ligne(table: str, cles: dict, donnees: dict):
+    """
+    Insert ou update sans contrainte UNIQUE sur les colonnes de recherche.
+    (Le schéma actuel n'a pas d'index unique sur user_id+sujet+date_session etc.)
+    """
+    q = _db.table(table).select("id")
+    for k, v in cles.items():
+        q = q.eq(k, v)
+    existing = q.limit(1).execute()
+    if existing.data:
+        _db.table(table).update(donnees).eq("id", existing.data[0]["id"]).execute()
+    else:
+        _db.table(table).insert({**cles, **donnees}).execute()
+
+
 # ============================================================
 # CONFIG
 # ============================================================
@@ -48,19 +63,20 @@ def charger_config() -> dict:
         print(f"[storage] charger_config : {e}")
         return {}
 
-def sauvegarder_config(config: dict):
+def sauvegarder_config(config: dict) -> bool:
     if not SUPABASE_OK or not _current_user_id:
-        return
+        return False
     try:
         for cle, valeur in config.items():
-            _db.table("config_utilisateur").upsert({
-                "user_id": _current_user_id,
-                "cle":     cle,
-                "valeur":  str(valeur),
-                "updated_at": datetime.utcnow().isoformat(),
-            }, on_conflict="user_id,cle").execute()
+            _upsert_ligne(
+                "config_utilisateur",
+                {"user_id": _current_user_id, "cle": cle},
+                {"valeur": str(valeur), "updated_at": datetime.utcnow().isoformat()},
+            )
+        return True
     except Exception as e:
         print(f"[storage] sauvegarder_config : {e}")
+        return False
 
 def charger_config_utilisateur(user_id: str) -> dict:
     """Version explicite avec user_id (pour le cron)."""
@@ -112,10 +128,12 @@ def charger_historique() -> dict:
         print(f"[storage] charger_historique : {e}")
         return {}
 
-def sauvegarder_historique(historique: dict):
+def sauvegarder_historique(historique: dict) -> bool:
     if not SUPABASE_OK or not _current_user_id:
-        return
+        print(f"[storage] sauvegarder_historique ignoré — SUPABASE_OK={SUPABASE_OK}, user_id={_current_user_id}")
+        return False
     try:
+        nb = 0
         for sujet, sessions in historique.items():
             if sujet.startswith("__") or not isinstance(sessions, list):
                 continue
@@ -127,15 +145,18 @@ def sauvegarder_historique(historique: dict):
                 rg       = session.get("resume_global","")
                 if not date_s:
                     continue
-                _db.table("historique_veille").upsert({
-                    "user_id":       _current_user_id,
-                    "sujet":         sujet.strip().lower(),
-                    "date_session":  date_s,
-                    "articles":      json.dumps(articles, ensure_ascii=False),
-                    "resume_global": rg,
-                }, on_conflict="user_id,sujet,date_session").execute()
+                sujet_norm = sujet.strip().lower()
+                _upsert_ligne(
+                    "historique_veille",
+                    {"user_id": _current_user_id, "sujet": sujet_norm, "date_session": date_s},
+                    {"articles": articles, "resume_global": rg},
+                )
+                nb += 1
+        print(f"[storage] sauvegarder_historique : {nb} session(s) écrite(s) pour user {_current_user_id}")
+        return nb > 0 or not historique
     except Exception as e:
         print(f"[storage] sauvegarder_historique : {e}")
+        return False
 
 def effacer_historique():
     if not SUPABASE_OK or not _current_user_id:

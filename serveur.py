@@ -1145,9 +1145,10 @@ def workflow_creer_post(sujet, resultats_recherche, callback_statut=None):
     def statut(msg):
         if callback_statut: callback_statut(msg)
 
+    sujet_lower = sujet.strip().lower()
     date = datetime.now().strftime("%d/%m/%Y")
     nb   = len(resultats_recherche)
-    lignes = ""; articles_pour_global = []
+    lignes = ""; articles_pour_global = []; nouveaux_articles = []
 
     for i, r in enumerate(resultats_recherche):
         statut(f"Resume IA {i+1}/{nb}...")
@@ -1157,10 +1158,27 @@ def workflow_creer_post(sujet, resultats_recherche, callback_statut=None):
         html_pts = "<ul style='margin:6px 0 0 0;padding-left:18px;'>" + "".join(f"<li style='margin:4px 0;font-size:12px;color:#6c7086;'>{pt}</li>" for pt in resume) + "</ul>"
         lignes += f"<tr><td style='padding:8px;text-align:center;'>{langue}</td><td style='padding:8px;'><strong>{r.get('title','')}</strong>{html_pts}</td><td style='padding:8px;text-align:center;'><a href='{r.get('href','#')}' target='_blank'>ouvrir</a></td></tr>"
         articles_pour_global.append({**r, "resume_ollama": resume})
+        nouveaux_articles.append({
+            "title": r.get("title",""), "href": r.get("href",""), "score": r.get("score",0),
+            "resume_ollama": resume, "date_recherche": date,
+        })
 
     statut("Synthese globale...")
     rg      = generer_resume_global(sujet, articles_pour_global)
     rg_html = _formater_resume_html(rg, articles_pour_global)
+
+    if nouveaux_articles:
+        historique = _charger_historique_ctx()
+        sessions   = historique.get(sujet_lower, [])
+        session_du_jour = next((s for s in sessions if s.get("date") == date), None)
+        if session_du_jour:
+            session_du_jour["articles"].extend(nouveaux_articles)
+            session_du_jour["resume_global"] = rg
+        else:
+            sessions.insert(0, {"date": date, "articles": nouveaux_articles, "resume_global": rg})
+        historique[sujet_lower] = sessions
+        _sauvegarder_historique_ctx(historique)
+        statut("Historique sauvegardé dans Supabase.")
     contenu = f"""
     <h2 style="color:var(--blue)">{sujet}</h2>
     <p style="color:var(--sub);">Publié le {date}</p>
