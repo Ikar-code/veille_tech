@@ -805,6 +805,16 @@ def page_auto():
     if STORAGE_OK:
         try: prefs = storage.charger_veille_auto(uid) or {}
         except Exception: prefs = {}
+
+    # ── Badges de statut des destinations de publication ──
+    cfg_auto     = _cfg()
+    github_actif = bool(cfg_auto.get("github_token","").strip()) and bool(cfg_auto.get("github_repo","").strip())
+    ftp_actif    = bool(cfg_auto.get("ftp_host","").strip()) and bool(cfg_auto.get("ftp_user","").strip()) and bool(cfg_auto.get("ftp_password","").strip())
+    badges_dest  = []
+    badges_dest.append(_badge("🐙 Publication GitHub activée","mauve") if github_actif else _badge("🐙 GitHub non configuré","yellow"))
+    badges_dest.append(_badge("📡 Publication FTP activée","mauve") if ftp_actif else _badge("📡 FTP non configuré","yellow"))
+    st.markdown(f'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">{"".join(badges_dest)}</div>', unsafe_allow_html=True)
+
     st.markdown('<div class="card card-accent">', unsafe_allow_html=True)
     st.markdown("#### Configurer votre veille automatique")
     sujets = st.text_area("Sujets (séparés par des virgules)", value=prefs.get("sujets",""),
