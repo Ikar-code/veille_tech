@@ -1018,10 +1018,11 @@ def _render_panneau_publication(uid, abonne):
         mode_pub = st.selectbox("Mode WordPress", ["Mise à jour page","Créer un post"], key="pub_mode")
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-    col_b1, col_b2, col_b3 = st.columns(3)
+    col_b1, col_b2, col_b3, col_b4 = st.columns(4)
     with col_b1: btn_wp   = st.button("🌐 Publier sur WordPress", use_container_width=True, key="btn_pub_wp",   disabled=st.session_state.get("en_cours_pub",False))
     with col_b2: btn_ftp  = st.button("📡 Publier sur FTP",       use_container_width=True, key="btn_pub_ftp",  disabled=st.session_state.get("en_cours_pub",False))
-    with col_b3: btn_both = st.button("🚀 Publier partout",        use_container_width=True, key="btn_pub_both", disabled=st.session_state.get("en_cours_pub",False), type="primary")
+    with col_b3: btn_gh   = st.button("🐙 Publier sur GitHub",    use_container_width=True, key="btn_pub_gh",   disabled=st.session_state.get("en_cours_pub",False))
+    with col_b4: btn_both = st.button("🚀 Publier partout",        use_container_width=True, key="btn_pub_both", disabled=st.session_state.get("en_cours_pub",False), type="primary")
 
     pub = st.session_state.get("derniere_publication")
     if pub:
@@ -1039,34 +1040,36 @@ def _render_panneau_publication(uid, abonne):
 
     cible_wp  = btn_wp  or btn_both
     cible_ftp = btn_ftp or btn_both
+    cible_gh  = btn_gh  or btn_both
 
-    if (cible_wp or cible_ftp) and not st.session_state.get("en_cours_pub", False):
+    if (cible_wp or cible_ftp or cible_gh) and not st.session_state.get("en_cours_pub", False):
         st.session_state["en_cours_pub"] = True
         pub_result = {"ok_wp": None, "msg_wp": "", "ok_ftp": None, "msg_ftp": "", "ok_gh": None, "msg_gh": ""}
         with st.spinner("Génération des résumés IA et publication…"):
             try:
                 _activer_storage(_user_id())  # ← réactive le contexte storage avant la publication
-                if mode_pub == "Mise à jour page" or cible_ftp:
-                    res = srv.workflow_publier(
-                        sujet, st.session_state["resultats"],
-                        callback_statut=_log,
-                        limite=int(nb_articles),
-                        theme_ftp=st.session_state.get("theme_ftp"),
-                        publier_wp=bool(cible_wp),
-                        publier_ftp_flag=bool(cible_ftp),
-                    )
-                    if "wordpress" in res: pub_result["ok_wp"],  pub_result["msg_wp"]  = res["wordpress"]
-                    if "ftp"       in res: pub_result["ok_ftp"], pub_result["msg_ftp"] = res["ftp"]
-                elif mode_pub == "Créer un post" and cible_wp:
-                    ok, msg = srv.workflow_creer_post(
-                        sujet,
-                        st.session_state["resultats"][:int(nb_articles)],
-                        callback_statut=_log,
-                    )
-                    pub_result["ok_wp"], pub_result["msg_wp"] = ok, msg
+                if cible_wp or cible_ftp:
+                    if mode_pub == "Mise à jour page" or cible_ftp:
+                        res = srv.workflow_publier(
+                            sujet, st.session_state["resultats"],
+                            callback_statut=_log,
+                            limite=int(nb_articles),
+                            theme_ftp=st.session_state.get("theme_ftp"),
+                            publier_wp=bool(cible_wp),
+                            publier_ftp_flag=bool(cible_ftp),
+                        )
+                        if "wordpress" in res: pub_result["ok_wp"],  pub_result["msg_wp"]  = res["wordpress"]
+                        if "ftp"       in res: pub_result["ok_ftp"], pub_result["msg_ftp"] = res["ftp"]
+                    elif mode_pub == "Créer un post" and cible_wp:
+                        ok, msg = srv.workflow_creer_post(
+                            sujet,
+                            st.session_state["resultats"][:int(nb_articles)],
+                            callback_statut=_log,
+                        )
+                        pub_result["ok_wp"], pub_result["msg_wp"] = ok, msg
 
                 # ── Publication GitHub depuis l'interface ──
-                if GITHUB_OK and uid and STORAGE_OK:
+                if cible_gh and GITHUB_OK and uid and STORAGE_OK:
                     try:
                         cfg_u = storage.charger_config()
                         gh_token = cfg_u.get("github_token","").strip()
