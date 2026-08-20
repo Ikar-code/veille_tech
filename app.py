@@ -259,6 +259,7 @@ def _init_state():
         "recherche_terminee":False,
         "limite_courante":10,
         "derniere_publication":None,
+        "url_veille_detectee":"",
         # ── Chatbot ──
         "chat_ouvert":   False,
         "chat_messages": [],
@@ -1342,7 +1343,37 @@ def page_config():
     with tab_integration:
         st.markdown("#### 🔗 Intégrer la veille sur une autre page")
         st.markdown('<div style="font-size:13px;color:var(--subtext);margin-bottom:20px;">Une fois votre veille publiée sur FTP, copiez l\'un des snippets ci-dessous.</div>', unsafe_allow_html=True)
-        url_veille = st.text_input("URL publique de votre veille-ia.html", value=exemple_url, placeholder="https://monsite.com/veille-ia.html", key="integration_url")
+
+        # ── Détection auto de l'URL GitHub Pages ──
+        gh_repo_cfg = cfg.get("github_repo","").strip()
+        if gh_repo_cfg and "/" in gh_repo_cfg:
+            st.markdown("##### 🐙 Détecter l'URL GitHub Pages")
+            st.markdown('<div style="font-size:12px;color:var(--subtext);margin-bottom:10px;">Selon la config de Pages sur ton repo (Settings → Pages → Source), l\'URL réelle diffère. Teste les deux.</div>', unsafe_allow_html=True)
+            owner_gh, repo_gh = gh_repo_cfg.split("/", 1)
+            candidats_gh = {
+                "Racine (Source = /)":    f"https://{owner_gh}.github.io/{repo_gh}/veille-ia.html",
+                "Dossier /docs (Source = /docs)": f"https://{owner_gh}.github.io/{repo_gh}/docs/veille-ia.html",
+            }
+            col_gh1, col_gh2 = st.columns(2)
+            for col_gh, (label_gh, cand_url) in zip([col_gh1, col_gh2], candidats_gh.items()):
+                with col_gh:
+                    st.markdown(f'<div style="font-size:11px;color:var(--subtext);margin-bottom:4px;">{label_gh}</div>', unsafe_allow_html=True)
+                    st.code(cand_url, language=None)
+                    if st.button("🔌 Tester", key=f"btn_test_url_{label_gh}", use_container_width=True):
+                        import requests as _req3
+                        try:
+                            r_gh_test = _req3.get(cand_url, timeout=6)
+                            if r_gh_test.status_code == 200:
+                                st.success("✅ Accessible")
+                                st.session_state["url_veille_detectee"] = cand_url
+                            else:
+                                st.error(f"❌ HTTP {r_gh_test.status_code}")
+                        except Exception as e:
+                            st.error(f"❌ {e}")
+            st.markdown("---")
+
+        url_defaut = st.session_state.get("url_veille_detectee") or exemple_url
+        url_veille = st.text_input("URL publique de votre veille-ia.html", value=url_defaut, placeholder="https://monsite.com/veille-ia.html", key="integration_url")
         st.markdown("---")
         st.markdown("#### ⚙️ Options d'affichage")
         col_pos, col_larg = st.columns(2)
@@ -1378,6 +1409,43 @@ document.getElementById("veille-container").innerHTML =
 </div>""", language="html")
         st.markdown('<div style="font-family:Space Mono;font-size:12px;color:var(--blue);margin-bottom:6px;margin-top:16px;">▶ Méthode 3 — lien direct</div>', unsafe_allow_html=True)
         st.code(f'<a href="{url_veille}" target="_blank" style="display:inline-block;padding:10px 20px;background:#89b4fa;color:#1e1e2e;border-radius:8px;font-weight:bold;text-decoration:none;">📡 Voir la veille technologique</a>', language="html")
+
+        st.markdown('<div style="font-family:Space Mono;font-size:12px;color:var(--blue);margin-bottom:6px;margin-top:16px;">▶ Méthode 4 — Widget autonome (à donner à un client)</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-size:12px;color:var(--subtext);margin-bottom:10px;">Un seul bloc à coller, sans dépendance, avec repli automatique si l\'auto-hauteur échoue (domaines différents). L\'URL est déjà pré-remplie ci-dessous.</div>', unsafe_allow_html=True)
+        st.code(f"""<div id="veille-ia-widget" style="min-height:120px;border:1px solid #45475a;border-radius:12px;overflow:hidden;">
+  <div style="padding:24px;text-align:center;color:#8b93a7;font-family:sans-serif;font-size:13px;">
+    Chargement de la veille…
+  </div>
+</div>
+
+<script>
+(function () {{
+  var VEILLE_URL = "{url_veille}";
+
+  var box = document.getElementById("veille-ia-widget");
+  var iframe = document.createElement("iframe");
+
+  iframe.src = VEILLE_URL + "?v=" + Date.now();
+  iframe.style.width = "100%";
+  iframe.style.border = "none";
+  iframe.style.display = "block";
+  iframe.loading = "lazy";
+  iframe.title = "Veille technologique";
+
+  iframe.onload = function () {{
+    try {{
+      iframe.style.height = iframe.contentDocument.body.scrollHeight + "px";
+      box.style.border = "none";
+    }} catch (e) {{
+      iframe.style.height = "1600px";
+    }}
+  }};
+
+  box.innerHTML = "";
+  box.appendChild(iframe);
+}})();
+</script>""", language="html")
+
         st.markdown("---")
         st.markdown('<div class="card card-accent" style="padding:14px 16px;"><div style="font-size:13px;font-weight:600;color:var(--blue);margin-bottom:8px;">📝 Note WordPress</div><div style="font-size:12px;color:var(--subtext);line-height:1.8;">WordPress filtre le HTML par défaut. Utilisez l\'éditeur <strong style="color:var(--text)">HTML / Code source</strong>, le plugin <strong style="color:var(--text)">WPCode</strong>, ou un bloc <strong style="color:var(--text)">HTML personnalisé</strong>.</div></div>', unsafe_allow_html=True)
 
