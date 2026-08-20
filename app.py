@@ -42,6 +42,14 @@ try:
 except Exception:
     pass
 
+# ── GitHub (optionnel) ────────────────────────────────────
+GITHUB_OK = False
+try:
+    import github_publisher as gh
+    GITHUB_OK = True
+except Exception:
+    pass
+
 def _valider_texte(texte: str, longueur_max: int = 500):
     if SECURITY_OK:
         try:
@@ -1017,8 +1025,11 @@ def _render_panneau_publication(uid, abonne):
 
     pub = st.session_state.get("derniere_publication")
     if pub:
-        col_r1, col_r2 = st.columns(2)
-        for col, ok_key, msg_key, label in [(col_r1,"ok_wp","msg_wp","WordPress"),(col_r2,"ok_ftp","msg_ftp","FTP / Page web")]:
+        pairs = [("ok_wp","msg_wp","WordPress"), ("ok_ftp","msg_ftp","FTP / Page web")]
+        if pub.get("ok_gh") is not None:
+            pairs.append(("ok_gh","msg_gh","GitHub"))
+        cols_res = st.columns(len(pairs))
+        for col, (ok_key, msg_key, label) in zip(cols_res, pairs):
             with col:
                 ok  = pub.get(ok_key)
                 msg = pub.get(msg_key,"")
@@ -1031,7 +1042,7 @@ def _render_panneau_publication(uid, abonne):
 
     if (cible_wp or cible_ftp) and not st.session_state.get("en_cours_pub", False):
         st.session_state["en_cours_pub"] = True
-        pub_result = {"ok_wp": None, "msg_wp": "", "ok_ftp": None, "msg_ftp": ""}
+        pub_result = {"ok_wp": None, "msg_wp": "", "ok_ftp": None, "msg_ftp": "", "ok_gh": None, "msg_gh": ""}
         with st.spinner("Génération des résumés IA et publication…"):
             try:
                 _activer_storage(_user_id())  # ← réactive le contexte storage avant la publication
@@ -1053,6 +1064,35 @@ def _render_panneau_publication(uid, abonne):
                         callback_statut=_log,
                     )
                     pub_result["ok_wp"], pub_result["msg_wp"] = ok, msg
+
+                # ── Publication GitHub depuis l'interface ──
+                if GITHUB_OK and uid and STORAGE_OK:
+                    try:
+                        cfg_u = storage.charger_config()
+                        gh_token = cfg_u.get("github_token","").strip()
+                        gh_repo  = cfg_u.get("github_repo","").strip()
+                        if gh_token and gh_repo:
+                            _log("Publication GitHub…")
+                            h        = storage.charger_historique() if STORAGE_OK else srv.charger_historique()
+                            date_maj = datetime.now().strftime("%d/%m/%Y")
+                            contenu  = srv.generer_contenu_html(h, date_maj)
+                            theme    = st.session_state.get("theme_ftp")
+                            html_gh  = (srv.generer_html_complet_theme(contenu, date_maj, theme, h)
+                                        if theme else srv.generer_html_complet(contenu, date_maj, h))
+                            r_gh = gh.publier_tout(
+                                token    = gh_token,
+                                repo     = gh_repo,
+                                sujet    = sujet,
+                                articles = st.session_state["resultats"][:int(nb_articles)],
+                                html     = html_gh,
+                            )
+                            ok_rss  = r_gh.get("rss",  (False,"?"))
+                            ok_html = r_gh.get("github_pages", (True,"ignoré"))
+                            pub_result["ok_gh"]  = ok_rss[0] or ok_html[0]
+                            pub_result["msg_gh"] = f"RSS: {ok_rss[1]} | Pages: {ok_html[1]}"
+                    except Exception as e:
+                        pub_result["ok_gh"]  = False
+                        pub_result["msg_gh"] = f"GitHub erreur : {e}"
             except Exception as e:
                 _log(f"❌ Erreur publication : {e}")
                 pub_result["msg_wp"]  = f"Erreur : {e}"
@@ -1182,8 +1222,8 @@ def page_config():
     ftp_host = cfg.get("ftp_host","")
     exemple_url = f"https://{ftp_host}/veille-ia.html" if ftp_host else "https://monsite.com/veille-ia.html"
 
-    tab_wp, tab_ftp, tab_theme, tab_integration = st.tabs(
-        ["🌐 WordPress","📡 FTP","🎨 Thème & Affichage","🔗 Intégration"])
+    tab_wp, tab_ftp, tab_github, tab_theme, tab_integration = st.tabs(
+        ["🌐 WordPress","📡 FTP","🐙 GitHub","🎨 Thème & Affichage","🔗 Intégration"])
 
     with tab_wp:
         st.markdown("#### Connexion WordPress")
@@ -1217,6 +1257,81 @@ def page_config():
                 ok, msg = srv.tester_connexion_ftp(ftp_host_input, ftp_user, ftp_pwd)
                 if ok: st.success(msg)
                 else:  st.error(msg)
+
+    with tab_github:
+        st.markdown("#### 🐙 Publication sur GitHub")
+        st.markdown(
+            '<div style="font-size:12px;color:var(--subtext);margin-bottom:16px;line-height:1.8;">'
+            'Le cron publiera automatiquement :<br>'
+            '• Un fichier RSS dans <code>rss/AAAA-MM-JJ_HH-MM_sujet.xml</code><br>'
+            '• La page <code>docs/veille-ia.html</code> (accessible via GitHub Pages)<br>'
+            'Le dossier est créé automatiquement s\'il n\'existe pas.</div>',
+            unsafe_allow_html=True)
+
+        gh_token = st.text_input(
+            "Personal Access Token GitHub",
+            value=cfg.get("github_token",""),
+            type="password",
+            placeholder="ghp_xxxxxxxxxxxxxxxxxxxx",
+            help="Settings → Developer settings → Personal access tokens → Fine-grained → Contents: Read & Write")
+
+        gh_repo = st.text_input(
+            "Repo GitHub (username/nom-du-repo)",
+            value=cfg.get("github_repo",""),
+            placeholder="Ikar-code/veille_tech")
+
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("💾 Sauvegarder GitHub", use_container_width=True, key="btn_save_gh"):
+                if gh_token and gh_repo:
+                    cfg.update({"github_token": gh_token.strip(), "github_repo": gh_repo.strip()})
+                    _save_cfg(cfg)
+                    st.success("✅ Infos GitHub sauvegardées !")
+                else:
+                    st.warning("Remplissez les deux champs.")
+        with c2:
+            if st.button("🔌 Tester la connexion", use_container_width=True, key="btn_test_gh"):
+                if not GITHUB_OK:
+                    st.error("Module github_publisher non disponible.")
+                elif not gh_token or not gh_repo:
+                    st.warning("Remplissez les deux champs.")
+                else:
+                    import requests as _req
+                    try:
+                        r = _req.get(
+                            f"https://api.github.com/repos/{gh_repo.strip()}",
+                            headers={"Authorization": f"Bearer {gh_token.strip()}",
+                                     "Accept": "application/vnd.github+json"},
+                            timeout=8)
+                        if r.status_code == 200:
+                            data = r.json()
+                            st.success(f"✅ Repo trouvé : {data.get('full_name')} — {data.get('visibility','?')}")
+                        elif r.status_code == 401:
+                            st.error("Token invalide ou expiré.")
+                        elif r.status_code == 404:
+                            st.error("Repo introuvable. Vérifiez le nom (username/repo).")
+                        else:
+                            st.error(f"Erreur GitHub {r.status_code}")
+                    except Exception as e:
+                        st.error(f"Erreur : {e}")
+
+        st.markdown("---")
+        st.markdown(
+            '<div class="card card-accent" style="padding:14px 16px;">'
+            '<div style="font-size:13px;font-weight:600;color:var(--blue);margin-bottom:8px;">📋 Comment créer le token</div>'
+            '<div style="font-size:12px;color:var(--subtext);line-height:1.9;">'
+            '1. Va sur <strong>github.com → Settings → Developer settings</strong><br>'
+            '2. <strong>Personal access tokens → Fine-grained tokens → Generate new token</strong><br>'
+            '3. Sélectionne ton repo <code>veille_tech</code><br>'
+            '4. Dans <strong>Repository permissions</strong> → <strong>Contents : Read and Write</strong><br>'
+            '5. Génère et colle le token ci-dessus</div></div>',
+            unsafe_allow_html=True)
+
+        if gh_repo and "github.io" not in gh_repo:
+            parts = gh_repo.strip().split("/")
+            if len(parts) == 2:
+                pages_url = f"https://{parts[0]}.github.io/{parts[1]}/veille-ia.html"
+                st.markdown(f'<div style="margin-top:12px;font-size:12px;color:var(--subtext);">URL GitHub Pages (après activation) :<br><code style="color:var(--green);">{pages_url}</code></div>', unsafe_allow_html=True)
 
     with tab_theme:
         _render_theme_editor()
