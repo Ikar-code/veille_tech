@@ -22,6 +22,14 @@ except Exception:
 import serveur as srv
 import storage
 
+# ── GitHub Publisher (optionnel) ──────────────────────────
+GITHUB_OK = False
+try:
+    import github_publisher as gh
+    GITHUB_OK = True
+except Exception as e:
+    print(f"[cron] github_publisher indisponible : {e}")
+
 GMAIL_USER     = os.environ.get("GMAIL_USER", "")
 GMAIL_PASSWORD = os.environ.get("GMAIL_PASSWORD", "")
 
@@ -33,7 +41,6 @@ def generer_email_html(sujets_str: str, articles: list,
                         resume_global: str, intervalle: int = 1) -> str:
     date = datetime.now().strftime("%d/%m/%Y")
 
-    # Label de fréquence
     if intervalle == 1:
         freq_label = "quotidienne"
     elif intervalle == 7:
@@ -119,16 +126,25 @@ def traiter_utilisateur(user_id: str, sujets_str: str,
                          email_dest: str, intervalle: int = 1):
     print(f"\n  ▶ {email_dest} ({user_id[:8]}…) — intervalle {intervalle}j")
 
-    # ── 1 & 2 : contexte storage ──────────────────────────
+    # ── 1 : contexte storage ──────────────────────────────
     storage.set_user(user_id)
     srv.set_storage_context(storage)
 
-    # ── 3 : config utilisateur ────────────────────────────
+    # ── 2 : config utilisateur ────────────────────────────
     cfg   = storage.charger_config()
     theme = None
     if "theme_ftp" in cfg:
         try: theme = json.loads(cfg["theme_ftp"])
         except Exception: theme = None
+
+    # ── Infos GitHub de l'utilisateur ─────────────────────
+    github_token = cfg.get("github_token", "").strip()
+    github_repo  = cfg.get("github_repo", "").strip()
+    github_actif = GITHUB_OK and bool(github_token) and bool(github_repo)
+    if github_actif:
+        print(f"    GitHub : {github_repo}")
+    else:
+        print("    GitHub : non configuré — ignoré")
 
     sous_sujets    = [s.strip() for s in sujets_str.split(",") if s.strip()]
     articles_email = []
@@ -139,16 +155,16 @@ def traiter_utilisateur(user_id: str, sujets_str: str,
         print(f"    Sujet : «{sujet}»")
         sujet_lower = sujet.strip().lower()
         try:
-            # ── 4a : Recherche ─────────────────────────────
+            # ── Recherche ──────────────────────────────────
             resultats = srv.rechercher(sujet, callback_statut=lambda m: print(f"      {m}"))
             if not resultats:
                 print("      Aucun résultat."); continue
 
-            # ── 4b : Résumés IA ────────────────────────────
-            limite      = int(cfg.get("auto_limite", 10))
-            historique  = storage.charger_historique()
-            sessions    = historique.get(sujet_lower, [])
-            tous_hrefs  = {a["href"] for s in sessions for a in s.get("articles",[]) if "href" in a}
+            # ── Résumés IA ─────────────────────────────────
+            limite     = int(cfg.get("auto_limite", 10))
+            historique = storage.charger_historique()
+            sessions   = historique.get(sujet_lower, [])
+            tous_hrefs = {a["href"] for s in sessions for a in s.get("articles",[]) if "href" in a}
 
             nouveaux = []
             for r in resultats:
@@ -169,23 +185,27 @@ def traiter_utilisateur(user_id: str, sujets_str: str,
             if not nouveaux:
                 print("      Pas de nouveaux articles."); continue
 
-            # ── 5a : Résumé global ─────────────────────────
+            # ── Résumé global ──────────────────────────────
             print("      Synthèse globale…")
             time.sleep(10)
             resume_global = srv.generer_resume_global(sujet_lower, nouveaux)
 
-            # ── 5b : Sauvegarde dans Supabase ──────────────
+            # ── Sauvegarde Supabase ────────────────────────
             session_du_jour = next((s for s in sessions if s.get("date")==date_jour), None)
             if session_du_jour:
                 session_du_jour["articles"].extend(nouveaux)
                 session_du_jour["resume_global"] = resume_global
             else:
-                sessions.insert(0, {"date":date_jour,"articles":nouveaux,"resume_global":resume_global})
+                sessions.insert(0, {
+                    "date":          date_jour,
+                    "articles":      nouveaux,
+                    "resume_global": resume_global,
+                })
             historique[sujet_lower] = sessions
             storage.sauvegarder_historique(historique)
-            print(f"      ✓ {len(nouveaux)} articles sauvegardés")
+            print(f"      ✓ {len(nouveaux)} articles sauvegardés en base")
 
-            # ── 6 : Publication WordPress ──────────────────
+            # ── Publication WordPress ──────────────────────
             if cfg.get("wp_base") and cfg.get("wp_user") and cfg.get("wp_password"):
                 try:
                     date_maj = datetime.now().strftime("%d/%m/%Y")
@@ -196,13 +216,39 @@ def traiter_utilisateur(user_id: str, sujets_str: str,
                 except Exception as e:
                     print(f"      WP  : ✗ {e}")
 
-            # ── 7 : Publication FTP ────────────────────────
+            # ── Publication FTP ────────────────────────────
+            html_complet = None
             if cfg.get("ftp_host") and cfg.get("ftp_user") and cfg.get("ftp_password"):
                 try:
                     ok_ftp, msg_ftp = srv._publier_ftp_avec_historique(None, historique, theme)
                     print(f"      FTP : {'✓' if ok_ftp else '✗'} {msg_ftp}")
                 except Exception as e:
                     print(f"      FTP : ✗ {e}")
+
+            # ── Publication GitHub (RSS + HTML Pages) ──────
+            if github_actif:
+                try:
+                    # Génère le HTML complet pour GitHub Pages
+                    date_maj     = datetime.now().strftime("%d/%m/%Y")
+                    contenu_html = srv.generer_contenu_html(historique, date_maj)
+                    html_gh      = (
+                        srv.generer_html_complet_theme(contenu_html, date_maj, theme, historique)
+                        if theme
+                        else srv.generer_html_complet(contenu_html, date_maj, historique)
+                    )
+                    resultats_gh = gh.publier_tout(
+                        token    = github_token,
+                        repo     = github_repo,
+                        sujet    = sujet,
+                        articles = nouveaux,
+                        html     = html_gh,
+                    )
+                    ok_rss  = resultats_gh.get("rss",  (False,"?"))
+                    ok_html = resultats_gh.get("github_pages", (True, "ignoré"))
+                    print(f"      GH RSS  : {'✓' if ok_rss[0]  else '✗'} {ok_rss[1]}")
+                    print(f"      GH HTML : {'✓' if ok_html[0] else '✗'} {ok_html[1]}")
+                except Exception as e:
+                    print(f"      GitHub : ✗ {e}")
 
             articles_email.extend(nouveaux[:5])
             if resume_global and not resume_global.startswith("Erreur"):
@@ -214,10 +260,10 @@ def traiter_utilisateur(user_id: str, sujets_str: str,
             print(f"      ✗ Erreur : {e}")
             import traceback; traceback.print_exc()
 
-    # ── 8 : Marque l'exécution ────────────────────────────
+    # ── Marque l'exécution ────────────────────────────────
     storage.marquer_execution(user_id)
 
-    # ── 9 : Email ─────────────────────────────────────────
+    # ── Email ─────────────────────────────────────────────
     if not articles_email:
         print("    ⚠ Aucun article — email ignoré"); return
 
